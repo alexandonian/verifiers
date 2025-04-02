@@ -11,7 +11,7 @@ This repository contains a set of tools for reinforcement learning with LLMs in 
 
 PyPI [coming soon](https://pypi.org/project/verifiers/), for now just do:
 ```
-git clone https://github.com/willccbb/verifiers.git
+git clone https://github.com/alexandonian/verifiers.git
 cd verifiers
 uv sync
 uv pip install flash-attn --no-build-isolation
