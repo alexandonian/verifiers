@@ -8,9 +8,8 @@ from datasets import Dataset
 from verifiers import RewardFunc
 from verifiers.envs.multiturn_env import MultiTurnEnv
 from verifiers.parsers import XMLParser
-from verifiers.prompts import DEFAULT_TOOL_PROMPT_TEMPLATE
 from verifiers.prompts.system_prompts import DEFAULT_CODE_TOOL_PROMPT_TEMPLATE
-from verifiers.rubrics import ToolRubric
+from verifiers.rubrics import CodeToolRubric
 from verifiers.tools.python import python
 
 
@@ -137,7 +136,7 @@ class CodeToolEnv(MultiTurnEnv):
         )
         self.dataset_name = dataset
         self.max_steps = max_steps
-        self.rubric = ToolRubric(tools=tools)
+        self.rubric = CodeToolRubric(tools=tools)
         self.llm_parser = XMLParser(fields=["reasoning", ("code", "tool", "answer")])
         self.env_parser = XMLParser(fields=["tool_result", "code_result"])
 

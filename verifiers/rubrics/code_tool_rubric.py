@@ -1,18 +1,20 @@
 import json
-from typing import List, Dict, Callable
+from typing import Callable, Dict, List
 
 from verifiers.parsers import XMLParser
 from verifiers.rubrics import Rubric
 from verifiers.rubrics.math_grader import grade
 
 
-class ToolRubric(Rubric):
+class CodeToolRubric(Rubric):
     def __init__(
         self,
-        parser: XMLParser = XMLParser(fields=["reasoning", ("tool", "answer")]),
-        env_parser: XMLParser = XMLParser(fields=["result"]),
-        tools: List[Callable] = [],
+        parser: XMLParser = XMLParser(fields=["reasoning", ("code", "tool", "answer")]),
+        env_parser: XMLParser = XMLParser(fields=["code_result", "tool_result"]),
+        tools: List[Callable] | None = None,
     ):
+        if tools is None:
+            tools = []
         self.parser = parser
         self.env_parser = env_parser
         self.tools = {tool.__name__: tool for tool in tools}
@@ -20,6 +22,7 @@ class ToolRubric(Rubric):
             self.mc_reward_func,
             self.math_reward_func,
             self.code_reward_func,
+            self.code_execution_reward_func,
             self.correct_answer_reward_func,
             self.tool_execution_reward_func,
             self.parser.get_format_reward_func(),
@@ -29,6 +32,7 @@ class ToolRubric(Rubric):
             0.0,
             0.0,
             0.0,
+            0.5,
             1.0,
             0.5,
             0.25,
@@ -44,13 +48,13 @@ class ToolRubric(Rubric):
 
     def evaluate_code(self, code_str, answer, **kwargs) -> float:
         import io
-        import sys
         import signal
+        import sys
         from contextlib import redirect_stdout
 
         try:
             test_cases = json.loads(answer)["test_cases"]
-        except:
+        except (json.JSONDecodeError, KeyError, TypeError):
             return 0.0
         # strip ```python and ``` if present at the beginning and end of the code
         code_str = code_str.strip()
@@ -154,21 +158,21 @@ class ToolRubric(Rubric):
             if t == "mc":
                 try:
                     reward = self.mc_reward_func([completion], [ans], [t], **kwargs)[0]
-                except:
+                except Exception:
                     reward = None
             elif t == "math":
                 try:
                     reward = self.math_reward_func([completion], [ans], [t], **kwargs)[
                         0
                     ]
-                except:
+                except Exception:
                     reward = None
             elif t == "code":
                 try:
                     reward = self.code_reward_func([completion], [ans], [t], **kwargs)[
                         0
                     ]
-                except:
+                except Exception:
                     reward = None
             else:
                 reward = None
@@ -213,16 +217,14 @@ class ToolRubric(Rubric):
                                 trajectory[i + 1]["content"]
                             )
                             if (
-                                hasattr(parsed_response, "result")
+                                hasattr(parsed_response, "tool_result")
                                 and parsed_response.result is not None
                                 and not parsed_response.result.startswith("Error:")
                             ):
                                 successful_executions += 1 * multiplier
 
             # Calculate reward
-            if tool_attempts == 0:
-                return 0.0
-            return successful_executions / tool_attempts
+            return 0.0 if tool_attempts == 0 else successful_executions / tool_attempts
 
         return [check_execution(c) for c in completions]
 
@@ -270,7 +272,7 @@ class ToolRubric(Rubric):
                                             trajectory[i + 1]["content"]
                                         )
                                         if (
-                                            hasattr(parsed_response, "result")
+                                            hasattr(parsed_response, "tool_result")
                                             and parsed_response.result is not None
                                             and not parsed_response.result.startswith(
                                                 "Error:"
@@ -281,9 +283,9 @@ class ToolRubric(Rubric):
                                 pass
 
                 # Calculate reward
-                if tool_attempts == 0:
-                    return 0.0
-                return successful_executions / tool_attempts
+                return (
+                    0.0 if tool_attempts == 0 else successful_executions / tool_attempts
+                )
 
             return [check_tool_execution(c) for c in completions]
 
@@ -325,7 +327,7 @@ class ToolRubric(Rubric):
                                             trajectory[i + 1]["content"]
                                         )
                                         if (
-                                            hasattr(parsed_response, "result")
+                                            hasattr(parsed_response, "tool_result")
                                             and parsed_response.result is not None
                                             and not parsed_response.result.startswith(
                                                 "Error:"
@@ -375,3 +377,43 @@ class ToolRubric(Rubric):
 
         tool_attempt_reward_func.__name__ = f"{tool_name}_attempt_reward_func"
         return tool_attempt_reward_func
+
+    def code_execution_reward_func(
+        self,
+        completions: List[List[Dict[str, str]]],
+        **kwargs,
+    ) -> List[float]:
+        """Reward function that checks code execution success at each step."""
+
+        def check_execution(trajectory: List[Dict[str, str]]) -> float:
+            total_code_steps = 0
+            successful_executions = 0
+
+            for i, msg in enumerate(trajectory):
+                if msg["role"] == "assistant":
+                    parsed = self.parser.parse(msg["content"])
+                    if hasattr(parsed, "code") and parsed.code is not None:
+                        total_code_steps += 1
+                        # Look for the next user message (environment response)
+                        if (
+                            i + 1 < len(trajectory)
+                            and trajectory[i + 1]["role"] == "user"
+                        ):
+                            env_response = trajectory[i + 1]["content"]
+                            parsed_response = self.env_parser.parse(env_response)
+                            if (
+                                hasattr(parsed_response, "code_result")
+                                and parsed_response.output
+                            ):
+                                output = parsed_response.output
+                                if len(output) > 0 and not output.startswith("Error:"):
+                                    successful_executions += 1
+
+            # Return proportional reward based on successful executions
+            if total_code_steps == 0:
+                return 0.0
+            return 0.3 * (successful_executions / total_code_steps) + 0.05 * (
+                successful_executions
+            )
+
+        return [check_execution(c) for c in completions]
