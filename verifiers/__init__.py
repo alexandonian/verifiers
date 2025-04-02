@@ -4,6 +4,7 @@ RewardFunc = Union[str, PreTrainedModel, Callable[[list, list], list[float]]]
 
 from .envs.environment import Environment
 from .envs.code_env import CodeEnv
+from .envs.code_tool_env import CodeToolEnv
 from .envs.doublecheck_env import DoubleCheckEnv
 from .envs.simple_env import SimpleEnv
 from .envs.tool_env import ToolEnv
@@ -25,6 +26,7 @@ __all__ = [
     "DoubleCheckEnv",
     "SimpleEnv",
     "ToolEnv",
+    "CodeToolEnv",
     "GRPOEnvTrainer",
     "get_model",
     "get_tokenizer",

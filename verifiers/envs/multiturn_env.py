@@ -35,10 +35,10 @@ def dict_to_chat_response(data: Dict[str, Any]) -> ChatResponse:
                 data["responses"][i]["outputs"] = [
                     ChatOutput(**output) for output in response_item["outputs"]
                 ]
-        
+
         # Then convert all response items to ChatResponseItem objects
         data["responses"] = [ChatResponseItem(**item) for item in data["responses"]]
-    
+
     # Finally, convert the entire dict to a ChatResponse object
     return ChatResponse(**data)
 
@@ -71,7 +71,7 @@ class MultiTurnEnv(Environment):
                 system_prompt=self.system_prompt,
                 few_shot=few_shot
             )
-        else:   
+        else:
             self.eval_dataset = None
         self.sampling_args = {
             "skip_special_tokens": False,
@@ -106,7 +106,7 @@ class MultiTurnEnv(Environment):
              states: List[Dict[str, Any]],
              llm: LLM | VLLMClient,
              sampling_params: SamplingParams) -> List[Dict[str, Any]]:
-        
+
         live_indices = [i for i, s in enumerate(states) if not s["completed"]]
         messages_to_step = [states[i]["messages"] for i in live_indices]
 
@@ -138,7 +138,7 @@ class MultiTurnEnv(Environment):
             if len(state["prompt_ids"]) == 0:
                 state["prompt_ids"] = llm_response.prompt_token_ids
             state["messages"].append({"role": "assistant", "content": llm_response.outputs[0].text})
-        
+
             # get token lengths of env response and new completion
             total_prev_len = len(state["prompt_ids"]) + len(state["completion_ids"])
             env_response_len  = len(list(llm_response.prompt_token_ids)) - total_prev_len # type: ignore
@@ -163,7 +163,7 @@ class MultiTurnEnv(Environment):
                 state["completion_mask"].extend([1] * (len(state["completion_ids"]) - len(state["completion_mask"]))) # type: ignore
             if len(state["completion_mask"]) > len(state["completion_ids"]): # type: ignore
                 state["completion_mask"] = state["completion_mask"][:len(state["completion_ids"])] # type: ignore
-            
+
             if self.is_completed(state["messages"]) or len(state["completion_ids"]) > sampling_params.max_tokens - 1: # type: ignore
                 state["completed"] = True
                 state["completion_ids"] = state["completion_ids"][:sampling_params.max_tokens]
@@ -195,7 +195,7 @@ class MultiTurnEnv(Environment):
         return states
 
     def generate(self, prompts: List[List[Dict[str, Any]]],
-                 llm: LLM | VLLMClient,  
+                 llm: LLM | VLLMClient,
                  sampling_params: SamplingParams,
                  **kwargs: Any) -> Dict[str, List[Sequence[int]] | List[str] |  List[List[Dict[str, Any]]]]:
         custom_sp = sampling_params.clone()
@@ -228,7 +228,7 @@ class MultiTurnEnv(Environment):
         }
         return output
 
-    def step_api(self, 
+    def step_api(self,
              client: Any,
              model: str,
              messages: List[Dict[str, str]],
@@ -236,33 +236,33 @@ class MultiTurnEnv(Environment):
              **kwargs: Any) -> Tuple[List[Dict[str, str]], bool]:
         """
         Execute a single step using OpenAI API, including environment response if needed.
-        
+
         Args:
             client: OpenAI client instance
             messages: Conversation history
             model: Model name to use
             **kwargs: Additional arguments for the chat completion API
-        
+
         Returns:
             Updated messages list with assistant response and possibly environment response
         """
         messages_copy = deepcopy(messages)
-        
-        try:            
+
+        try:
             # Get assistant response
             response = client.chat.completions.create(
                 model=model,
                 messages=messages_copy,
                 extra_body=sampling_args
             )
-            
+
             # Add assistant response to messages
             assistant_msg = {
-                "role": "assistant", 
+                "role": "assistant",
                 "content": response.choices[0].message.content
             }
             messages_copy.append(assistant_msg)
-            
+
             # Check if we're done
             if self.is_completed(messages_copy):
                 rollout_is_completed = True
@@ -271,28 +271,28 @@ class MultiTurnEnv(Environment):
                 # If not done, get and add environment response
                 env_msg = self.env_response(messages_copy)
                 messages_copy.append(env_msg)
-            
+
             return messages_copy, rollout_is_completed
-            
+
         except Exception as e:
             # Handle errors by adding error message and returning
             error_msg = {"role": "assistant", "content": f"Error in API call: {str(e)}"}
             messages_copy.append(error_msg)
             return messages_copy, True
-    
-    def eval_api(self, 
+
+    def eval_api(self,
                 client: Any,
                 model: str,
                 max_concurrent: int = 32,
                 timeout: int = 60,
                 sampling_args: Dict[str, Any] = {},
                 **kwargs: Any):
-        
+
         eval_sampling_args = deepcopy(self.sampling_args)
         eval_sampling_args.update(sampling_args)
         """
         Evaluate model using OpenAI API with proper concurrency.
-        
+
         Args:
             client: OpenAI client instance
             model: Model name as string
@@ -300,7 +300,7 @@ class MultiTurnEnv(Environment):
             timeout: Maximum seconds to wait for each example
             sampling_args: Arguments specific to sampling (separate from env sampling_args)
             **kwargs: Additional arguments for evaluation
-        
+
         Returns:
             Tuple of (eval_dataset, rewards)
         """
@@ -311,19 +311,19 @@ class MultiTurnEnv(Environment):
             # Get the evaluation dataset
             if self.eval_dataset is None:
                 self.eval_dataset = self.get_eval_dataset(**kwargs)
-                
+
             if self.eval_dataset is None:
                 raise ValueError("Failed to load evaluation dataset")
-            
+
             eval_dataset = self.eval_dataset
-            
+
             async def process_example(example, semaphore):
                 async with semaphore:
                     # Initialize conversation with system prompt and few-shot examples
                     prompt = example["prompt"]
                     messages = deepcopy(example["prompt"])
                     answer = example["answer"]
-                    
+
                     # Save the length of initial messages to extract just the interaction part later
                     initial_length = len(messages)
 
@@ -341,34 +341,34 @@ class MultiTurnEnv(Environment):
                                     sampling_args=eval_sampling_args
                                 )
                             )
-                            
+
                             # Unpack the step_api result
                             messages, is_completed = step_result
-                            
+
                             # If the rollout is completed, break the loop
                             if is_completed:
                                 break
-                            
+
                         except Exception as e:
                             print(f"Error processing example {example.get('id', 'unknown')}: {str(e)}")
                             break
-                    
+
                     # Extract only the interaction part (not system/few-shot)
                     completions = messages[initial_length:]
-                    
+
                     return {
                         "prompt": prompt,
                         "completions": completions,
                         "task": example["task"],
                         "answer": answer
                     }
-            
+
             async def run_all_examples():
                 # Create semaphore for concurrency control
                 from tqdm.asyncio import tqdm_asyncio
 
                 semaphore = Semaphore(max_concurrent)
-                
+
                 # Process all examples concurrently
                 tasks = [process_example(example, semaphore) for example in eval_dataset]
                 results = await tqdm_asyncio.gather(
@@ -376,9 +376,9 @@ class MultiTurnEnv(Environment):
                     total=len(eval_dataset),
                     desc=f"Evaluating {len(eval_dataset)} examples"
                 )
-                
+
                 return results
-            
+
             # Run the async evaluation
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -386,17 +386,17 @@ class MultiTurnEnv(Environment):
                 results = loop.run_until_complete(run_all_examples())
             finally:
                 loop.close()
-            
+
             # Calculate rewards
             results_prompt = [result["prompt"] for result in results]
             results_answer = [result["answer"] for result in results]
             results_task = [result["task"] for result in results]
             results_completions = [result["completions"] for result in results]
             results = {"prompt": results_prompt, "answer": results_answer, "completions": results_completions, "task": results_task}
-            
+
             reward_funcs = self.get_reward_funcs()
             rewards = {}
-            
+
             for reward_func in reward_funcs:
                 func_rewards = reward_func(**results) # type: ignore
                 func_rewards = [fr for fr in func_rewards if fr is not None]
@@ -404,11 +404,10 @@ class MultiTurnEnv(Environment):
                 func_name = reward_func.__name__ # type: ignore
                 print(f"{func_name}: {func_reward_avg}")
                 rewards[func_name] = func_reward_avg
-            
+
             return rewards
-            
+
         # Run the evaluation function
         return run_evaluation()
-    
 
-    
+
