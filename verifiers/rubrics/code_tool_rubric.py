@@ -218,8 +218,8 @@ class CodeToolRubric(Rubric):
                             )
                             if (
                                 hasattr(parsed_response, "tool_result")
-                                and parsed_response.result is not None
-                                and not parsed_response.result.startswith("Error:")
+                                and parsed_response.tool_result is not None
+                                and not parsed_response.tool_result.startswith("Error:")
                             ):
                                 successful_executions += 1 * multiplier
 
@@ -273,8 +273,8 @@ class CodeToolRubric(Rubric):
                                         )
                                         if (
                                             hasattr(parsed_response, "tool_result")
-                                            and parsed_response.result is not None
-                                            and not parsed_response.result.startswith(
+                                            and parsed_response.tool_result is not None
+                                            and not parsed_response.tool_result.startswith(
                                                 "Error:"
                                             )
                                         ):
@@ -328,8 +328,8 @@ class CodeToolRubric(Rubric):
                                         )
                                         if (
                                             hasattr(parsed_response, "tool_result")
-                                            and parsed_response.result is not None
-                                            and not parsed_response.result.startswith(
+                                            and parsed_response.tool_result is not None
+                                            and not parsed_response.tool_result.startswith(
                                                 "Error:"
                                             )
                                         ):
@@ -403,9 +403,9 @@ class CodeToolRubric(Rubric):
                             parsed_response = self.env_parser.parse(env_response)
                             if (
                                 hasattr(parsed_response, "code_result")
-                                and parsed_response.output
+                                and parsed_response.code_result
                             ):
-                                output = parsed_response.output
+                                output = parsed_response.code_result
                                 if len(output) > 0 and not output.startswith("Error:"):
                                     successful_executions += 1
 

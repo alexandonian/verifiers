@@ -2,7 +2,8 @@ from abc import ABC
 from typing import List, Dict
 import logging
 
-from verifiers.trainers.grpo_env_trainer import RewardFunc
+# from verifiers.trainers.grpo_env_trainer import RewardFunc
+from verifiers import RewardFunc
 
 
 def equals_reward_func(completions, answer, **kwargs) -> List[float]:
