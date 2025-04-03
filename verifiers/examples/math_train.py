@@ -18,7 +18,9 @@ from verifiers.utils import preprocess_dataset
 from verifiers.prompts import DEFAULT_CODE_TOOL_PROMPT_TEMPLATE
 
 
-dataset = preprocess_dataset("math", "train", n=6000)
+dataset_name = "project_euler"
+# dataset = preprocess_dataset("math", "train", n=6000)
+dataset = preprocess_dataset(dataset_name, "train")
 
 eval_aime24 = preprocess_dataset("aime2024", n=30)
 eval_aime25 = preprocess_dataset("aime2025", n=30)
@@ -36,7 +38,7 @@ print(vf_env.system_prompt)
 
 model_name = "Qwen/Qwen2.5-7B-Instruct"
 model, tokenizer = vf.get_model_and_tokenizer(model_name)
-run_name = "math-code-grpo_" + model_name.split("/")[-1].lower()
+run_name = f"{dataset_name}-code-grpo_" + model_name.split("/")[-1].lower()
 
 training_args = GRPOConfig(
     output_dir=f"outputs/{run_name}",
