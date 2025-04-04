@@ -233,7 +233,8 @@ class CodeToolEnv(MultiTurnEnv):
                     self.env_parser.format(strict=False, tool_result=tool_result)
                 )
 
-        with contextlib.suppress(Exception):
+        # with contextlib.suppress(Exception):
+        try:
             if hasattr(parsed, "code") and parsed.code is not None:
                 # code_result = run_secure_execute_in_process(parsed.code.strip())
                 code_result = run_python(parsed.code.strip())
@@ -248,11 +249,14 @@ class CodeToolEnv(MultiTurnEnv):
                             "content": code_output,
                             "attributes": {
                                 "execution_time": code_result["execution_time"],
-                                "memory_used": code_result["memory_used"],
+                                # "memory_used": code_result["memory_used"],
                             },
                         },
                     )
                 )
+        except Exception as e:
+            print( "Error during code execution:", e)
+            print(e)
 
         if outputs:
             return {

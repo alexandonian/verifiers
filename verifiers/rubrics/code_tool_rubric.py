@@ -534,7 +534,7 @@ class CodeToolRubric(Rubric):
             """
             # Default weights
             time_weight = 0.4
-            memory_weight = 0.4
+            memory_weight = 0.0  # TODO: Change this eventually
             code_length_weight = 0.2
 
             # Extract metrics
@@ -700,7 +700,9 @@ class CodeToolRubric(Rubric):
             # Combine scores
             performance_scores = []
             for i in range(len(metrics_list)):
-                perf_score = 0.5 * time_scores[i] + 0.5 * memory_scores[i]
+                perf_score = (
+                    0.5 * time_scores[i] + 0.0 * memory_scores[i]
+                )  # TODO: SET MEMORY SCORE WEIGHT TO SOMETHING USEFUL LATER
                 combined_score = (
                     performance_weight * perf_score
                     + code_length_weight * length_scores[i]

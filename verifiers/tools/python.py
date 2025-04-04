@@ -15,9 +15,9 @@ class CodeResult(TypedDict):
     output: str
     error: str
     execution_time: float
+    security_warnings: list[str]
     peak_memory: int
     memory_used: int
-    security_warnings: list[str]
 
 
 def python(code: str, timeout: int = 30) -> str:
@@ -56,19 +56,21 @@ def python(code: str, timeout: int = 30) -> str:
         return f"Error: Code execution timed out after {timeout} seconds"
 
 
-def run_python(code: str, timeout: int = 30) -> CodeResult:
+def run_python(code: str, timeout: int = 10) -> CodeResult:
     start_time = time.time()
-    result, memory_used, peak_memory = measure_memory_usage(
-        python, code, timeout=timeout
-    )
+    # For now until we implement memory tracking in the subprocess, we will not measure memory usage.
+    # result, memory_used, peak_memory = measure_memory_usage(
+    #     python, code, timeout=timeout
+    # )
+    result = python(code, timeout=timeout)
     has_error = isinstance(result, str) and result.startswith("Error:")
     return {
         "status": "error" if has_error else "success",
         "output": result if isinstance(result, str) else "",
         "error": result if has_error else "",
         "execution_time": time.time() - start_time,
-        "peak_memory": peak_memory,
-        "memory_used": memory_used,
+        "peak_memory": 0,
+        "memory_used": 0,
         "security_warnings": [],
     }
 
