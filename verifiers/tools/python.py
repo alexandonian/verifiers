@@ -1,4 +1,3 @@
-import tracemalloc
 import ast
 import contextlib
 import io
@@ -6,7 +5,9 @@ import resource
 import signal
 import time
 import traceback
-from typing import Dict, Any, Optional, List, TypedDict
+import tracemalloc
+from multiprocessing import Process, Queue
+from typing import Any, Dict, List, Optional, TypedDict
 
 
 def python(code: str, timeout: int = 30) -> str:
@@ -470,3 +471,91 @@ def secure_execute_python(
         result["execution_time"] = time.time() - start_time
 
     return result
+
+
+def run_secure_execute_in_process(
+    code: str,
+    time_limit: int = 5,
+    memory_limit: int = 100 * 1024 * 1024,
+    allowed_imports: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Run secure_execute_python in a separate process with a timeout.
+
+    Args:
+        secure_execute_python_func: The secure execution function to call
+        code: Python code to execute
+        time_limit: Maximum execution time in seconds
+        memory_limit: Maximum memory usage in bytes
+        allowed_imports: Optional list of additional allowed imports
+
+    Returns:
+        Dictionary containing execution results and metadata
+    """
+    # Queue for returning results
+    result_queue = Queue()
+
+    # Function to run in subprocess
+    def run_execution():
+        try:
+            result = secure_execute_python(
+                code,
+                time_limit=time_limit,
+                memory_limit=memory_limit,
+                allowed_imports=allowed_imports,
+            )
+            result_queue.put(result)
+        except Exception as e:
+            # Handle any exception that occurs
+            result_queue.put(
+                {
+                    "status": "error",
+                    "output": "",
+                    "error": f"Error in execution process: {str(e)}",
+                    "execution_time": 0,
+                    "peak_memory": 0,
+                    "security_warnings": [],
+                }
+            )
+
+    # Create and start process
+    process = Process(target=run_execution)
+    process.start()
+
+    # Wait for process with timeout
+    process_timeout = time_limit + 5  # Add buffer to the timeout
+    process.join(process_timeout)
+
+    # Check if process is still running
+    if process.is_alive():
+        # Process is still running after timeout, terminate it
+        process.terminate()
+        process.join(1)  # Give it 1 second to terminate
+
+        # If still alive, kill it forcefully
+        if process.is_alive():
+            process.kill()
+            process.join()
+
+        # Return timeout error
+        return {
+            "status": "error",
+            "output": "",
+            "error": f"Process timed out after {process_timeout} seconds",
+            "execution_time": process_timeout,
+            "peak_memory": 0,
+            "security_warnings": [],
+        }
+
+    # Get result from queue if available, otherwise return error
+    if not result_queue.empty():
+        return result_queue.get()
+    else:
+        return {
+            "status": "error",
+            "output": "",
+            "error": "Process terminated without returning a result",
+            "execution_time": 0,
+            "peak_memory": 0,
+            "security_warnings": [],
+        }
