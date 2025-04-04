@@ -397,6 +397,7 @@ def secure_execute_python(
     if security_warnings:
         result["security_warnings"] = security_warnings
         result["error"] = "Potentially unsafe code detected"
+        result["output"] = "".join(security_warnings)
         return result
 
     # Set up execution environment
