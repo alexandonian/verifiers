@@ -10,6 +10,16 @@ from multiprocessing import Process, Queue
 from typing import Any, Dict, List, Optional, TypedDict
 
 
+class CodeResult(TypedDict):
+    status: str
+    output: str
+    error: str
+    execution_time: float
+    peak_memory: int
+    memory_used: int
+    security_warnings: list[str]
+
+
 def python(code: str, timeout: int = 30) -> str:
     """Evaluates a block of Python code and returns output of print() statements. Allowed libraries: astropy, biopython, networkx, numpy, scipy, sympy.
 
@@ -44,6 +54,23 @@ def python(code: str, timeout: int = 30) -> str:
         return output
     except subprocess.TimeoutExpired:
         return f"Error: Code execution timed out after {timeout} seconds"
+
+
+def run_python(code: str, timeout: int = 30) -> CodeResult:
+    start_time = time.time()
+    result, memory_used, peak_memory = measure_memory_usage(
+        python, code, timeout=timeout
+    )
+    has_error = isinstance(result, str) and result.startswith("Error:")
+    return {
+        "status": "error" if has_error else "success",
+        "output": result if isinstance(result, str) else "",
+        "error": result if has_error else "",
+        "execution_time": time.time() - start_time,
+        "peak_memory": peak_memory,
+        "memory_used": memory_used,
+        "security_warnings": [],
+    }
 
 
 class CodeExecutionError(Exception):
@@ -362,19 +389,9 @@ def measure_memory_usage(func, *args, **kwargs):
     return result, total_diff, peak_size
 
 
-class CodeResult(TypedDict):
-    status: str
-    output: str
-    error: str
-    execution_time: float
-    peak_memory: int
-    memory_used: int
-    security_warnings: list[str]
-
-
 def secure_execute_python(
     code: str,
-    time_limit: int = 5,  # seconds
+    time_limit: int = 60,  # seconds
     memory_limit: int = 100 * 1024 * 1024,  # 100MB
     allowed_imports: Optional[List[str]] = None,
 ) -> CodeResult:
@@ -475,10 +492,10 @@ def secure_execute_python(
 
 def run_secure_execute_in_process(
     code: str,
-    time_limit: int = 5,
+    time_limit: int = 60,
     memory_limit: int = 100 * 1024 * 1024,
     allowed_imports: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+) -> CodeResult:
     """
     Run secure_execute_python in a separate process with a timeout.
 
@@ -514,6 +531,7 @@ def run_secure_execute_in_process(
                     "error": f"Error in execution process: {str(e)}",
                     "execution_time": 0,
                     "peak_memory": 0,
+                    "memory_used": 0,
                     "security_warnings": [],
                 }
             )
@@ -544,6 +562,7 @@ def run_secure_execute_in_process(
             "error": f"Process timed out after {process_timeout} seconds",
             "execution_time": process_timeout,
             "peak_memory": 0,
+            "memory_used": 0,
             "security_warnings": [],
         }
 
@@ -557,5 +576,6 @@ def run_secure_execute_in_process(
             "error": "Process terminated without returning a result",
             "execution_time": 0,
             "peak_memory": 0,
+            "memory_used": 0,
             "security_warnings": [],
         }

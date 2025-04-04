@@ -10,7 +10,7 @@ from verifiers.envs.multiturn_env import MultiTurnEnv
 from verifiers.parsers import XMLParser
 from verifiers.prompts.system_prompts import DEFAULT_CODE_TOOL_PROMPT_TEMPLATE
 from verifiers.rubrics import CodeToolRubric
-from verifiers.tools.python import run_secure_execute_in_process
+from verifiers.tools.python import run_secure_execute_in_process, run_python
 
 
 def infer_schema_from_function(func: Callable) -> Dict[str, Any]:
@@ -219,7 +219,7 @@ class CodeToolEnv(MultiTurnEnv):
     def env_response(
         self, messages: List[Dict[str, str]], **kwargs: Any
     ) -> Dict[str, str]:
-        parsed = self.llm_parser.parse(messages[-1]["content"])
+        parsed = self.llm_parser.parse(messages[-1]["content"], strict=False)
         # Check if we got a valid tool field (not just None from failed parsing)
         outputs = []
         with contextlib.suppress(Exception):
@@ -235,7 +235,8 @@ class CodeToolEnv(MultiTurnEnv):
 
         with contextlib.suppress(Exception):
             if hasattr(parsed, "code") and parsed.code is not None:
-                code_result = run_secure_execute_in_process(parsed.code.strip())
+                # code_result = run_secure_execute_in_process(parsed.code.strip())
+                code_result = run_python(parsed.code.strip())
                 code_output = code_result["output"]
                 if len(code_output.strip()) == 0:
                     code_output = "Error: Code execution returned empty output."

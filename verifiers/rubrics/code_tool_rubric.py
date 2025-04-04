@@ -538,18 +538,18 @@ class CodeToolRubric(Rubric):
             code_length_weight = 0.2
 
             # Extract metrics
-            exec_time = metric["exec_time"]
+            exec_time = metric["execution_time"]
             memory_used = metric["memory_used"]
             code_length = metric["code_length"]
 
             # 1. Calculate time efficiency score
             if (
                 reference_metrics
-                and "exec_time" in reference_metrics
-                and reference_metrics["exec_time"] > 0
+                and "executuion_time" in reference_metrics
+                and reference_metrics["execution_time"] > 0
             ):
                 # Compare with reference time (if available)
-                ref_time = reference_metrics["exec_time"]
+                ref_time = reference_metrics["execution_time"]
                 time_ratio = ref_time / exec_time if exec_time > 0 else 0
                 # Sigmoid-like function to map ratio to [0,1] with reasonable thresholds
                 time_score = min(1.0, 2 / (1 + math.exp(-2 * time_ratio)))
@@ -637,7 +637,7 @@ class CodeToolRubric(Rubric):
             metrics_list.sort(key=lambda x: x["message_index"])
 
             # Get performance values
-            time_values = [m["exec_time"] for m in metrics_list]
+            time_values = [m["execution_time"] for m in metrics_list]
             memory_values = [m["memory_used"] for m in metrics_list]
             code_lengths = [m["code_length"] for m in metrics_list]
 
@@ -673,7 +673,7 @@ class CodeToolRubric(Rubric):
             # Calculate normalized scores
             if max_time > min_time:
                 time_scores = [
-                    (max_time - m["exec_time"]) / (max_time - min_time)
+                    (max_time - m["execution_time"]) / (max_time - min_time)
                     for m in metrics_list
                 ]
             else:

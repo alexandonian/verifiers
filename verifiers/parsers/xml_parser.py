@@ -308,7 +308,7 @@ class XMLParser:
 
         return "\n".join(parts)
 
-    def parse(self, text: str, strip: bool = True, strict: bool = True) -> Any:
+    def parse(self, text: str, strip: bool = True, strict: bool = False) -> Any:
         """
         Parse the given XML string and return an object with attributes.
 
