@@ -67,6 +67,18 @@ def get_preprocess_fn(name: str) -> Callable[[Dict], Dict]:
             return {"question": x["problem"], "answer": x["answer"], "task": "math"}
 
         return preprocess_amc2023
+
+    elif name == "project_euler":
+
+        def preprocess_project_euler(x: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "question": x["question_latex"],
+                "answer": x["numerical_answer"],
+                "task": "math",
+            }
+
+        return preprocess_project_euler
+
     elif name in ["gpqa_diamond", "gpqa_main"]:
 
         def preprocess_gpqa(x: Dict[str, Any]) -> Dict[str, Any]:
@@ -208,6 +220,11 @@ def preprocess_dataset(
         if split is None:
             split = "train"
         dataset: Dataset = load_dataset("chiayewken/competition_math")[split]  # type: ignore
+    elif name == "project_euler":
+        if split is None:
+            split = "train"
+        dataset: Dataset = load_dataset("alexandonian/project-euler")[split]  # type: ignore
+
     elif name == "math500":
         if split is None:
             split = "test"

@@ -1,6 +1,6 @@
-def python(code: str) -> str:
+def python(code: str, timeout: int = 30) -> str:
     """Evaluates a block of Python code and returns output of print() statements. Allowed libraries: astropy, biopython, networkx, numpy, scipy, sympy.
-    
+
     Args:
         code: A block of Python code
 
@@ -14,20 +14,21 @@ def python(code: str) -> str:
     """
 
     import subprocess
+
     try:
         # Run the code block in subprocess with 10-second timeout
         result = subprocess.run(
-            ['python', '-c', code],
+            ["python", "-c", code],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=10,
-            text=True
+            timeout=timeout,
+            text=True,
         )
         if result.stderr:
             return f"Error: {result.stderr.strip()}"
         output = result.stdout.strip() if result.stdout else ""
         if len(output) > 1000:
-            output = output[:1000] + "... (truncated to 1000 chars)"
+            output = f"{output[:1000]}... (truncated to 1000 chars)"
         return output
     except subprocess.TimeoutExpired:
-        return "Error: Code execution timed out after 10 seconds"
+        return f"Error: Code execution timed out after {timeout} seconds"
