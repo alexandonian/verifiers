@@ -10,7 +10,7 @@ from verifiers.envs.multiturn_env import MultiTurnEnv
 from verifiers.parsers import XMLParser
 from verifiers.prompts.system_prompts import DEFAULT_CODE_TOOL_PROMPT_TEMPLATE
 from verifiers.rubrics import CodeToolRubric
-from verifiers.tools.python import python
+from verifiers.tools.python import secure_execute_python
 
 
 def infer_schema_from_function(func: Callable) -> Dict[str, Any]:
@@ -229,17 +229,29 @@ class CodeToolEnv(MultiTurnEnv):
                     tool_result = tool_result.strip()
                 else:
                     tool_result = "Error: Tool execution returned empty output"
-                outputs.append(f"<tool_result>\n{tool_result}\n</tool_result>")
+                outputs.append(
+                    self.env_parser.format(strict=False, tool_result=tool_result)
+                )
 
         with contextlib.suppress(Exception):
             if hasattr(parsed, "code") and parsed.code is not None:
-                code_result = python(parsed.code.strip())
-                if len(code_result.strip()) > 0:
-                    code_result = code_result.strip()
-                else:
-                    code_result = "Error: Code execution returned empty output."
+                code_result = secure_execute_python(parsed.code.strip())
+                code_output = code_result["output"]
+                if len(code_output.strip()) == 0:
+                    code_output = "Error: Code execution returned empty output."
 
-                outputs.append(f"<code_result>\n{code_result}\n</code_result>")
+                outputs.append(
+                    self.env_parser.format(
+                        strict=False,
+                        code_result={
+                            "content": code_output,
+                            "attributes": {
+                                "execution_time": code_result["execution_time"],
+                                "memory_used": code_result["memory_used"],
+                            },
+                        },
+                    )
+                )
 
         if outputs:
             return {

@@ -6,7 +6,7 @@ import resource
 import signal
 import time
 import traceback
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TypedDict
 
 
 def python(code: str, timeout: int = 30) -> str:
@@ -361,12 +361,22 @@ def measure_memory_usage(func, *args, **kwargs):
     return result, total_diff, peak_size
 
 
+class CodeResult(TypedDict):
+    status: str
+    output: str
+    error: str
+    execution_time: float
+    peak_memory: int
+    memory_used: int
+    security_warnings: list[str]
+
+
 def secure_execute_python(
     code: str,
     time_limit: int = 5,  # seconds
     memory_limit: int = 100 * 1024 * 1024,  # 100MB
     allowed_imports: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+) -> CodeResult:
     """
     Safely execute Python code with restrictions.
 
@@ -380,21 +390,20 @@ def secure_execute_python(
         Dictionary containing execution results and metadata
     """
     # Initialize result structure
-    result = {
+    result: CodeResult = {
         "status": "error",
         "output": "",
         "error": "",
         "execution_time": 0,
         "peak_memory": 0,
         "security_warnings": [],
+        "memory_used": 0,
     }
     start_time = time.time()
 
     # Check code for security issues
     security_checker = SecurityChecker(allowed_imports)
-    security_warnings = security_checker.check_code(code)
-
-    if security_warnings:
+    if security_warnings := security_checker.check_code(code):
         result["security_warnings"] = security_warnings
         result["error"] = "Potentially unsafe code detected"
         result["output"] = "".join(security_warnings)
