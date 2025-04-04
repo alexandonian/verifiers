@@ -72,7 +72,9 @@ class XMLParser:
                         for alt in alternatives:
                             # If this alternative is used, check it has proper tags
                             # Updated to handle tags with attributes
-                            opening_tags = re.findall(rf"<{alt}(\s+[^>]*)?>\s*", content)
+                            opening_tags = re.findall(
+                                rf"<{alt}(\s+[^>]*)?>\s*", content
+                            )
                             closing_tags = re.findall(rf"</{alt}>\s*", content)
 
                             if opening_tags or closing_tags:
@@ -160,10 +162,9 @@ class XMLParser:
                                     and getattr(parsed_no_strip, alt) is not None
                                 ):
                                     has_correct_spacing = False
-                            elif (
-                                re.search(rf"<{alt}(\s+[^>]*)?>\s*", content)
-                                or re.search(rf"</{alt}>\s*", content)
-                            ):
+                            elif re.search(
+                                rf"<{alt}(\s+[^>]*)?>\s*", content
+                            ) or re.search(rf"</{alt}>\s*", content):
                                 # Tag exists but content wasn't properly parsed
                                 total_fields += 1
                                 field_set_present = True
@@ -267,7 +268,9 @@ class XMLParser:
                 # Check if the value is a dict with content and attributes
                 if isinstance(value_data, dict) and "content" in value_data:
                     value = value_data["content"]
-                    if "attributes" in value_data and isinstance(value_data["attributes"], dict):
+                    if "attributes" in value_data and isinstance(
+                        value_data["attributes"], dict
+                    ):
                         attributes = value_data["attributes"]
                 else:
                     value = value_data
@@ -278,7 +281,9 @@ class XMLParser:
                         # Check if the value is a dict with content and attributes
                         if isinstance(value_data, dict) and "content" in value_data:
                             value = value_data["content"]
-                            if "attributes" in value_data and isinstance(value_data["attributes"], dict):
+                            if "attributes" in value_data and isinstance(
+                                value_data["attributes"], dict
+                            ):
                                 attributes = value_data["attributes"]
                         else:
                             value = value_data
@@ -326,28 +331,28 @@ class XMLParser:
             for alt in alternatives:
                 # Find the tag opening pattern which may include attributes
                 tag_pattern = rf"<{alt}(\s+[^>]+?)?\s*>\s*(.*?)\s*</{alt}>"
-                match = re.search(tag_pattern, text, re.DOTALL)
-
-                if match:
+                if match := re.search(tag_pattern, text, re.DOTALL):
                     field_set_present = True
                     # Extract the content
                     content = match[2]
                     results[alt] = content.strip() if strip else content
 
-                    # Extract and parse attributes if any
-                    attr_str = match[1] if match[1] else ""
-                    if attr_str:
+                    if attr_str := match[1] or "":
                         attr_dict = {}
 
                         # First, look for quoted attributes: attr="value"
-                        quoted_attrs = re.finditer(r'([^=>\s]+)\s*=\s*"([^"]*)"', attr_str)
+                        quoted_attrs = re.finditer(
+                            r'([^=>\s]+)\s*=\s*"([^"]*)"', attr_str
+                        )
                         for attr_match in quoted_attrs:
                             attr_name = attr_match[1]
                             attr_value = attr_match[2]
                             attr_dict[attr_name] = attr_value
 
                         # Then, look for unquoted attributes: attr=value
-                        unquoted_attrs = re.finditer(r'([^=>\s]+)\s*=\s*([^"\s][^\s>]*)', attr_str)
+                        unquoted_attrs = re.finditer(
+                            r'([^=>\s]+)\s*=\s*([^"\s][^\s>]*)', attr_str
+                        )
                         for attr_match in unquoted_attrs:
                             attr_name = attr_match[1]
                             attr_value = attr_match[2]
