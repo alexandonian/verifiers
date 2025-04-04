@@ -68,7 +68,7 @@ def run_python(code: str, timeout: int = 10) -> CodeResult:
         "status": "error" if has_error else "success",
         "output": result if isinstance(result, str) else "",
         "error": result if has_error else "",
-        "execution_time": time.time() - start_time,
+        "execution_time": round(time.time() - start_time, 5),
         "peak_memory": 0,
         "memory_used": 0,
         "security_warnings": [],
