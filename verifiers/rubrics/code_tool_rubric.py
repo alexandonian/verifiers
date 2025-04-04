@@ -1,5 +1,6 @@
+import math
 import json
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 from verifiers.parsers import XMLParser
 from verifiers.rubrics import Rubric
@@ -25,6 +26,7 @@ class CodeToolRubric(Rubric):
             self.code_execution_reward_func,
             self.correct_answer_reward_func,
             self.tool_execution_reward_func,
+            self.code_performance_reward_func,
             self.parser.get_format_reward_func(),
             self.parser.get_xml_reward_func(),
         ]
@@ -35,6 +37,7 @@ class CodeToolRubric(Rubric):
             0.5,
             1.0,
             0.5,
+            0.25,
             0.25,
             0.25,
         ]
@@ -400,7 +403,9 @@ class CodeToolRubric(Rubric):
                             and trajectory[i + 1]["role"] == "user"
                         ):
                             env_response = trajectory[i + 1]["content"]
-                            parsed_response = self.env_parser.parse(env_response)
+                            parsed_response = self.env_parser.parse(
+                                env_response, strict=False
+                            )
                             if (
                                 hasattr(parsed_response, "code_result")
                                 and parsed_response.code_result
@@ -417,3 +422,303 @@ class CodeToolRubric(Rubric):
             )
 
         return [check_execution(c) for c in completions]
+
+    def code_performance_reward_func(
+        self,
+        completions: List[List[Dict[str, str]]],
+        reference_metrics: Optional[Dict[str, float]] = None,
+        **kwargs,
+    ) -> List[float]:
+        """
+        Reward function that evaluates code execution performance at each step.
+
+        Performance is measured by the execution time and memory usage, with adaptive
+        scaling based on problem complexity and statistical normalization across solutions.
+        """
+
+        def check_performance(trajectory: List[Dict[str, str]]) -> float:
+            # Track performance metrics for all executions in this trajectory
+            performance_metrics = []
+
+            for i, msg in enumerate(trajectory):
+                if msg["role"] == "assistant":
+                    parsed = self.parser.parse(msg["content"])
+                    if hasattr(parsed, "code") and parsed.code is not None:
+                        # Look for the next user message (environment response)
+                        if (
+                            i + 1 < len(trajectory)
+                            and trajectory[i + 1]["role"] == "user"
+                        ):
+                            env_response = trajectory[i + 1]["content"]
+                            parsed_response = self.env_parser.parse(
+                                env_response, strict=False
+                            )
+
+                            # Check if we have performance metrics
+                            if (
+                                hasattr(parsed_response, "code_result_attributes")
+                                and parsed_response.code_result_attributes
+                            ):
+                                attr_dict = parsed_response.code_result_attributes
+
+                                # Extract execution time and memory usage
+                                try:
+                                    exec_time = float(
+                                        attr_dict.get("execution_time", 0)
+                                    )
+                                    # Convert memory from string (potentially with B suffix) to float
+                                    memory_str = attr_dict.get("memory_used", "0")
+                                    if isinstance(
+                                        memory_str, str
+                                    ) and memory_str.endswith("B"):
+                                        memory_str = memory_str[:-1]
+                                    memory_used = float(memory_str)
+
+                                    # Skip if both are zero (likely an error)
+                                    if exec_time <= 0 and memory_used <= 0:
+                                        continue
+
+                                    # Check if execution was successful by looking at code_result
+                                    if (
+                                        hasattr(parsed_response, "code_result")
+                                        and parsed_response.code_result
+                                        and not parsed_response.code_result.startswith(
+                                            "Error:"
+                                        )
+                                    ):
+                                        # Save metrics and code length for successful executions
+                                        code_length = len(parsed.code)
+                                        performance_metrics.append(
+                                            {
+                                                "execution_time": exec_time,
+                                                "memory_used": memory_used,
+                                                "code_length": code_length,
+                                                "message_index": i,
+                                            }
+                                        )
+                                except (ValueError, TypeError):
+                                    # Skip metrics we can't parse
+                                    continue
+
+            # If no successful executions, return 0
+            if not performance_metrics:
+                return 0.0
+
+            # Calculate performance score using adaptive metrics
+            # Calculate performance score using adaptive metrics
+            return calculate_performance_score(performance_metrics, reference_metrics)
+
+        def calculate_performance_score(metrics_list, reference_metrics=None):
+            """
+            Calculate a performance score that adapts to available data.
+
+            Handles single execution case by using either reference metrics or
+            reasonable default heuristics.
+            """
+            if not metrics_list:
+                return 0.0
+
+            # For a single execution or multiple executions, calculate a score
+            if len(metrics_list) == 1:
+                return calculate_single_execution_score(
+                    metrics_list[0], reference_metrics
+                )
+            else:
+                return calculate_multiple_execution_score(metrics_list)
+
+        def calculate_single_execution_score(metric, reference_metrics=None):
+            """
+            Calculate performance score for a single execution.
+
+            Uses reference metrics if available, otherwise applies reasonable heuristics.
+            """
+            # Default weights
+            time_weight = 0.4
+            memory_weight = 0.4
+            code_length_weight = 0.2
+
+            # Extract metrics
+            exec_time = metric["exec_time"]
+            memory_used = metric["memory_used"]
+            code_length = metric["code_length"]
+
+            # 1. Calculate time efficiency score
+            if (
+                reference_metrics
+                and "exec_time" in reference_metrics
+                and reference_metrics["exec_time"] > 0
+            ):
+                # Compare with reference time (if available)
+                ref_time = reference_metrics["exec_time"]
+                time_ratio = ref_time / exec_time if exec_time > 0 else 0
+                # Sigmoid-like function to map ratio to [0,1] with reasonable thresholds
+                time_score = min(1.0, 2 / (1 + math.exp(-2 * time_ratio)))
+            else:
+                # Without reference, use absolute thresholds
+                # Faster code gets higher scores
+                if exec_time <= 0.01:  # Very fast execution
+                    time_score = 1.0
+                elif exec_time <= 0.1:  # Fast execution
+                    time_score = 0.9
+                elif exec_time <= 0.5:  # Moderate execution
+                    time_score = 0.7
+                elif exec_time <= 1.0:  # Standard execution
+                    time_score = 0.5
+                elif exec_time <= 5.0:  # Slower execution
+                    time_score = 0.3
+                else:  # Very slow execution
+                    time_score = 0.1
+
+            # 2. Calculate memory efficiency score
+            if (
+                reference_metrics
+                and "memory_used" in reference_metrics
+                and reference_metrics["memory_used"] > 0
+            ):
+                # Compare with reference memory (if available)
+                ref_memory = reference_metrics["memory_used"]
+                memory_ratio = ref_memory / memory_used if memory_used > 0 else 0
+                # Sigmoid-like function to map ratio to [0,1]
+                memory_score = min(1.0, 2 / (1 + math.exp(-2 * memory_ratio)))
+            else:
+                # Without reference, use absolute thresholds based on typical Python memory usage
+                # (these thresholds assume bytes as the unit)
+                if memory_used <= 1000:  # Extremely memory efficient
+                    memory_score = 1.0
+                elif memory_used <= 10000:  # Very memory efficient
+                    memory_score = 0.9
+                elif memory_used <= 100000:  # Memory efficient
+                    memory_score = 0.8
+                elif memory_used <= 1000000:  # Standard memory usage
+                    memory_score = 0.6
+                elif memory_used <= 10000000:  # Higher memory usage
+                    memory_score = 0.4
+                elif memory_used <= 100000000:  # High memory usage
+                    memory_score = 0.2
+                else:  # Very high memory usage
+                    memory_score = 0.1
+
+            # 3. Calculate code length score
+            # Very short code (less than 10 chars) is likely not meaningful
+            if code_length < 10:
+                length_score = 0.0
+            # Beyond a minimum threshold, shorter code is generally better
+            elif code_length <= 50:
+                length_score = 1.0
+            elif code_length <= 100:
+                length_score = 0.9
+            elif code_length <= 200:
+                length_score = 0.8
+            elif code_length <= 500:
+                length_score = 0.6
+            elif code_length <= 1000:
+                length_score = 0.4
+            else:
+                length_score = 0.2
+
+            # Combine the scores with their respective weights
+            final_score = (
+                time_weight * time_score
+                + memory_weight * memory_score
+                + code_length_weight * length_score
+            )
+
+            return final_score
+
+        def calculate_multiple_execution_score(metrics_list):
+            """
+            Calculate performance score when multiple executions are available.
+            This allows for normalization and trend analysis.
+            """
+            # This function contains the same logic as our original implementation
+            # for multiple executions
+
+            # Sort metrics by message index to maintain chronological order
+            metrics_list.sort(key=lambda x: x["message_index"])
+
+            # Get performance values
+            time_values = [m["exec_time"] for m in metrics_list]
+            memory_values = [m["memory_used"] for m in metrics_list]
+            code_lengths = [m["code_length"] for m in metrics_list]
+
+            # Find min/max values
+            min_time = min(time_values)
+            max_time = max(time_values)
+            min_memory = min(memory_values)
+            max_memory = max(memory_values)
+            min_length = min(code_lengths)
+
+            # Calculate complexity indicators
+            time_mean = sum(time_values) / len(time_values)
+            memory_mean = sum(memory_values) / len(memory_values)
+
+            # Estimate problem complexity using coefficient of variation
+            time_cv = (
+                (sum((t - time_mean) ** 2 for t in time_values) ** 0.5) / time_mean
+                if time_mean > 0
+                else 0
+            )
+            memory_cv = (
+                (sum((m - memory_mean) ** 2 for m in memory_values) ** 0.5)
+                / memory_mean
+                if memory_mean > 0
+                else 0
+            )
+
+            # Adjust weights based on complexity
+            complexity_indicator = (time_cv + memory_cv) / 2
+            performance_weight = min(0.8, 0.5 + complexity_indicator)
+            code_length_weight = 1 - performance_weight
+
+            # Calculate normalized scores
+            if max_time > min_time:
+                time_scores = [
+                    (max_time - m["exec_time"]) / (max_time - min_time)
+                    for m in metrics_list
+                ]
+            else:
+                time_scores = [1.0 for _ in metrics_list]
+
+            if max_memory > min_memory:
+                memory_scores = [
+                    (max_memory - m["memory_used"]) / (max_memory - min_memory)
+                    for m in metrics_list
+                ]
+            else:
+                memory_scores = [1.0 for _ in metrics_list]
+
+            # Calculate code length scores
+            length_scores = []
+            for length in code_lengths:
+                if length < 10:  # Very short code is likely not a complete solution
+                    length_score = 0.0
+                else:
+                    relative_length = length / min(max(min_length, 20), length)
+                    length_score = 1.0 / relative_length
+                length_scores.append(min(1.0, length_score))
+
+            # Combine scores
+            performance_scores = []
+            for i in range(len(metrics_list)):
+                perf_score = 0.5 * time_scores[i] + 0.5 * memory_scores[i]
+                combined_score = (
+                    performance_weight * perf_score
+                    + code_length_weight * length_scores[i]
+                )
+                performance_scores.append(combined_score)
+
+            # Check for improvement trend
+            trend_bonus = 0.0
+            if len(performance_scores) >= 2:
+                if performance_scores[-1] >= max(performance_scores[:-1]):
+                    trend_bonus = 0.1
+                if len(performance_scores) >= 3 and all(
+                    performance_scores[i] <= performance_scores[i + 1]
+                    for i in range(len(performance_scores) - 1)
+                ):
+                    trend_bonus = 0.2
+
+            # Return best score plus trend bonus
+            return min(1.0, max(performance_scores) + trend_bonus)
+
+        return [check_performance(c) for c in completions]
