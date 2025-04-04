@@ -71,12 +71,13 @@ class XMLParser:
                         # Check all alternatives for this field
                         for alt in alternatives:
                             # If this alternative is used, check it has proper tags
-                            if (
-                                content.count(f"<{alt}>") > 0
-                                or content.count(f"</{alt}>") > 0
-                            ):
-                                score += 1 - abs(content.count(f"<{alt}>") - 1)
-                                score += 1 - abs(content.count(f"</{alt}>") - 1)
+                            # Updated to handle tags with attributes
+                            opening_tags = re.findall(rf"<{alt}(\s+[^>]*)?>\s*", content)
+                            closing_tags = re.findall(rf"</{alt}>\s*", content)
+
+                            if opening_tags or closing_tags:
+                                score += 1 - abs(len(opening_tags) - 1)
+                                score += 1 - abs(len(closing_tags) - 1)
                                 total_checks += 2
 
                         # If no alternatives for this field were used, we don't add to total_checks
@@ -160,8 +161,8 @@ class XMLParser:
                                 ):
                                     has_correct_spacing = False
                             elif (
-                                content.count(f"<{alt}>") > 0
-                                or content.count(f"</{alt}>") > 0
+                                re.search(rf"<{alt}(\s+[^>]*)?>\s*", content)
+                                or re.search(rf"</{alt}>\s*", content)
                             ):
                                 # Tag exists but content wasn't properly parsed
                                 total_fields += 1
@@ -180,7 +181,7 @@ class XMLParser:
                         1
                     ]  # Get alternatives for first field set
                     for alt in first_field_set:
-                        if content.strip().startswith(f"<{alt}>"):
+                        if re.match(rf"^\s*<{alt}(\s+[^>]*)?>\s*", content.strip()):
                             starts_with_any_field = True
                             break
 
@@ -223,7 +224,7 @@ class XMLParser:
         """Return a list of the canonical field names (in order)."""
         return [canonical for canonical, _ in self._fields]
 
-    def format(self, **kwargs) -> str:
+    def format(self, strict=True, **kwargs) -> str:
         """
         Format the provided keyword arguments into an XML string.
 
@@ -231,52 +232,143 @@ class XMLParser:
         is used as the XML tag. The method looks for a provided value using any of the
         allowed names (preferring the canonical if present).
 
+        Args:
+            strict (bool): If True, require all field sets defined in the schema.
+                        If False, allow formatting with a subset of fields.
+            **kwargs: Values for each field, which can be strings or dicts with
+                    "content" and "attributes" keys.
+
         Example usage:
             parser = XMLParser(['reasoning', ('code', 'answer')])
+
+            # With strict=True (default), all fields are required
             formatted_str = parser.format(reasoning="...", code="...")
+
+            # With strict=False, only specified fields are included
+            formatted_str = parser.format(strict=False, code="...")  # Only includes code
+
+            # To include attributes:
+            formatted_str = parser.format(
+                code={"content": "...", "attributes": {"exec_time": "1.5"}}
+            )
+
+        Raises:
+            ValueError: If strict=True and any required field is missing
         """
         parts = []
         for canonical, alternatives in self._fields:
             value = None
+            attributes = {}
+
             # Look for a provided value using any of the acceptable keys,
             # preferring the canonical name if it exists.
             if canonical in kwargs:
-                value = kwargs[canonical]
+                value_data = kwargs[canonical]
+                # Check if the value is a dict with content and attributes
+                if isinstance(value_data, dict) and "content" in value_data:
+                    value = value_data["content"]
+                    if "attributes" in value_data and isinstance(value_data["attributes"], dict):
+                        attributes = value_data["attributes"]
+                else:
+                    value = value_data
             else:
                 for alt in alternatives:
                     if alt in kwargs:
-                        value = kwargs[alt]
+                        value_data = kwargs[alt]
+                        # Check if the value is a dict with content and attributes
+                        if isinstance(value_data, dict) and "content" in value_data:
+                            value = value_data["content"]
+                            if "attributes" in value_data and isinstance(value_data["attributes"], dict):
+                                attributes = value_data["attributes"]
+                        else:
+                            value = value_data
                         break
+
+            # Skip this field if value is None and we're not in strict mode
             if value is None:
-                raise ValueError(
-                    f"Missing value for field '{canonical}' (allowed: {alternatives})"
-                )
+                if strict:
+                    raise ValueError(
+                        f"Missing value for field '{canonical}' (allowed: {alternatives})"
+                    )
+                else:
+                    continue  # Skip this field in non-strict mode
+
+            # Format attributes if present
+            attr_str = ""
+            if attributes:
+                attr_str = " " + " ".join(f'{k}="{v}"' for k, v in attributes.items())
+
             # Use the canonical name as the tag for formatting.
-            parts.append(f"<{canonical}>\n{value}\n</{canonical}>")
+            parts.append(f"<{canonical}{attr_str}>\n{value}\n</{canonical}>")
+
         return "\n".join(parts)
 
-    def parse(self, text: str, strip: bool = True) -> Any:
+    def parse(self, text: str, strip: bool = True, strict: bool = True) -> Any:
         """
-        Parse the given XML string and return an object with attributes corresponding
-        to all allowed tags in the schema.
+        Parse the given XML string and return an object with attributes.
 
-        For each field defined:
-          - If it is a simple field (e.g. 'reasoning'), the output object will have
-            an attribute 'reasoning' set to the text content (or None if missing).
-          - If it is defined with alternatives (e.g. ("code", "answer")), the output
-            object will have attributes for *each* allowed tag name. For example,
-            if the schema is ['reasoning', ('code', 'answer')], then both
-            `result.code` and `result.answer` are always accessible. If a tag is not
-            found in the XML, its corresponding attribute is set to None.
+        Args:
+            text (str): The text to parse
+            strip (bool): Whether to strip whitespace from tag content
+            strict (bool): If True, raise an error for missing required tags.
+                        If False, return None for missing tags.
+
+        Returns:
+            SimpleNamespace: An object with attributes for each tag
         """
-        results: Dict[str, Optional[str]] = {}
+        results: Dict[str, Optional[Union[str, Dict[str, str]]]] = {}
+
+        missing_fields = []
+
         for canonical, alternatives in self._fields:
             # For each allowed alternative tag, search independently.
+            field_set_present = False
             for alt in alternatives:
-                # Regex pattern to capture the content between the tags.
-                pattern = rf"<{alt}>\s*(.*?)\s*</{alt}>"
-                if match := re.search(pattern, text, re.DOTALL):
-                    results[alt] = match[1].strip() if strip else match[1]
+                # Find the tag opening pattern which may include attributes
+                tag_pattern = rf"<{alt}(\s+[^>]+?)?\s*>\s*(.*?)\s*</{alt}>"
+                match = re.search(tag_pattern, text, re.DOTALL)
+
+                if match:
+                    field_set_present = True
+                    # Extract the content
+                    content = match[2]
+                    results[alt] = content.strip() if strip else content
+
+                    # Extract and parse attributes if any
+                    attr_str = match[1] if match[1] else ""
+                    if attr_str:
+                        attr_dict = {}
+
+                        # First, look for quoted attributes: attr="value"
+                        quoted_attrs = re.finditer(r'([^=>\s]+)\s*=\s*"([^"]*)"', attr_str)
+                        for attr_match in quoted_attrs:
+                            attr_name = attr_match[1]
+                            attr_value = attr_match[2]
+                            attr_dict[attr_name] = attr_value
+
+                        # Then, look for unquoted attributes: attr=value
+                        unquoted_attrs = re.finditer(r'([^=>\s]+)\s*=\s*([^"\s][^\s>]*)', attr_str)
+                        for attr_match in unquoted_attrs:
+                            attr_name = attr_match[1]
+                            attr_value = attr_match[2]
+                            # Only add if not already added by quoted pattern
+                            if attr_name not in attr_dict:
+                                attr_dict[attr_name] = attr_value
+
+                        # Add attributes dictionary
+                        results[f"{alt}_attributes"] = attr_dict
+                    else:
+                        results[f"{alt}_attributes"] = {}
                 else:
                     results[alt] = None
+                    results[f"{alt}_attributes"] = {}
+
+            # Track missing field sets for strict mode
+            if not field_set_present and strict:
+                missing_fields.append(canonical)
+
+        # In strict mode, raise an error if required fields are missing
+        if strict and missing_fields:
+            raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+
         return SimpleNamespace(**results)
