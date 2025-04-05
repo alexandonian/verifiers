@@ -53,7 +53,7 @@ For each step:
 
 Example usage:
 <tool>
-{{"name": "python", "args": {{"code": "import sympy\nx = sympy.symbols('x')\nprint(sympy.solve(x**2 - 4, x))"}}}}
+{{"name": "calculator", "args": {{"expression": "715.019337 / 4.0"}}}}
 </tool>
 
 
