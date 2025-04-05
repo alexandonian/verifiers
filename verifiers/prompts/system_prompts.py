@@ -70,7 +70,7 @@ result = np.sqrt(16)
 print(result)  # This will output 4.0
 </code>
 
-3a. You will see the tool's output inside <result> tags
+3a. You will see the tool's output inside <tool_result> tags
 3b. You will see the output from print() statements in your code in <code_result> tags
 4. Continue until you can give the final answer inside <answer> tags
 
