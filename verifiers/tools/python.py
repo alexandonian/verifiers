@@ -104,6 +104,7 @@ class SecurityChecker:
     def __init__(self, allowed_imports=None):
         self.allowed_imports = {
             # Whitelist of safe standard libraries
+            "os",
             "math",
             "random",
             "datetime",
@@ -114,6 +115,7 @@ class SecurityChecker:
             "json",
             "csv",
             "re",
+            "sys",
             "string",
             "typing",
             "enum",
@@ -128,6 +130,7 @@ class SecurityChecker:
             "numpy",
             "scipy",
             "sympy",
+            "pandas",
         }
 
         if allowed_imports:
@@ -159,7 +162,7 @@ class SecurityChecker:
                 "rmdir",
                 "listdir",
             },
-            "sys": {"exit", "_exit", "modules"},
+            "sys": {"exit", "_exit"},
             "subprocess": {"run", "call", "check_call", "check_output", "Popen"},
             "shutil": {"rmtree"},
             "": {"read", "write", "delete"},  # Generic dangerous file operations
@@ -210,12 +213,20 @@ class RestrictedNodeVisitor(ast.NodeVisitor):
 
     def visit_Import(self, node):
         for name in node.names:
-            if name.name not in self.allowed_imports:
+            if name.name not in self.allowed_imports and not any(
+                name.name.startswith(allowed) for allowed in self.allowed_imports
+            ):
                 self.issues.append(f"Potentially unsafe import: {name.name}")
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node):
-        if node.module not in self.allowed_imports:
+        if (
+            node.module not in self.allowed_imports
+            and node.module is not None
+            and not any(
+                node.module.startswith(allowed) for allowed in self.allowed_imports
+            )
+        ):
             self.issues.append(f"Potentially unsafe import: {node.module}")
         self.generic_visit(node)
 
@@ -261,7 +272,7 @@ class RestrictedNodeVisitor(ast.NodeVisitor):
 class ResourceLimiter:
     """Class to manage resource limits for code execution"""
 
-    def __init__(self, time_limit=5, memory_limit=100 * 1024 * 1024):
+    def __init__(self, time_limit=20, memory_limit=1000 * 1024 * 1024):
         self.time_limit = time_limit
         self.memory_limit = memory_limit
         self.old_handler = None
@@ -308,7 +319,10 @@ class ExecutionEnvironment:
 
         # Create a secure import function
         def secure_importer(name, globals=None, locals=None, fromlist=(), level=0):
-            if name not in self.security_checker.allowed_imports:
+            if name not in self.security_checker.allowed_imports and not any(
+                name.startswith(allowed)
+                for allowed in self.security_checker.allowed_imports
+            ):
                 raise ImportError(f"Import of '{name}' is not allowed")
             return __import__(name, globals, locals, fromlist, level)
 
@@ -470,8 +484,8 @@ def secure_execute_python(
 
 def run_secure_execute_in_process(
     code,
-    time_limit=5,
-    memory_limit=100 * 1024 * 1024,
+    time_limit=20,
+    memory_limit=1000 * 1024 * 1024,
     allowed_imports=None,
 ) -> CodeResult:
     with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
@@ -488,7 +502,7 @@ def run_secure_execute_in_process(
         except concurrent.futures.TimeoutError:
             return {
                 "status": "error",
-                "output": "",
+                "output": f"Execution timed out after {time_limit} seconds",
                 "error": f"Execution timed out after {time_limit} seconds",
                 "execution_time": time_limit,
                 "peak_memory": 0,
