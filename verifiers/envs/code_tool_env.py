@@ -237,8 +237,8 @@ class CodeToolEnv(MultiTurnEnv):
         try:
             if hasattr(parsed, "code") and parsed.code is not None:
                 code_result = run_secure_execute_in_process(parsed.code.strip())
-                code_output = code_result["output"]
-                if len(code_output.strip()) == 0:
+                code_output = code_result["output"].strip()
+                if len(code_output) == 0:
                     code_output = "Error: Code execution returned empty output."
 
                 outputs.append(
@@ -248,7 +248,7 @@ class CodeToolEnv(MultiTurnEnv):
                             "content": code_output,
                             "attributes": {
                                 "execution_time": code_result["execution_time"],
-                                # "memory_used": code_result["memory_used"],
+                                "memory_used": code_result["memory_used"],
                             },
                         },
                     )
