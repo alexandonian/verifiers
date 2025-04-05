@@ -320,15 +320,15 @@ def format_dataset(
     )
 
 
-def write_json(filename: str, data: dict | list[dict]):
+def write_json(data: dict | list[dict], filename: str) -> None:
     """Write an iterable of dictionaries to json.
 
     Args:
-        filename (str): The path to the jsonl file.
         data (dict | Iterable[dict]): The data to write to the json file.
+        filename (str): The path to the jsonl file.
 
     Example:
-        >>> write_json("/path/to/file.json", [{"key": "value"}])
+        >>> write_json([{"key": "value"}], "/path/to/file.json")
 
     """
     filename = os.path.expanduser(filename)
