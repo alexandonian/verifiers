@@ -811,7 +811,7 @@ def _normalize(expr: str) -> str:
 def count_unknown_letters_in_expr(expr: str):
     expr = expr.replace("sqrt", "")
     expr = expr.replace("frac", "")
-    letters_in_expr = set([x for x in expr if x.isalpha()])
+    letters_in_expr = {x for x in expr if x.isalpha()}
     return len(letters_in_expr)
 
 
@@ -824,11 +824,7 @@ def should_allow_eval(expr: str):
         if bad_string in expr:
             return False
 
-    for bad_regex in BAD_REGEXES:
-        if re.search(bad_regex, expr) is not None:
-            return False
-
-    return True
+    return all(re.search(bad_regex, expr) is None for bad_regex in BAD_REGEXES)
 
 
 def are_equal_under_sympy(ground_truth_normalized: str, given_normalized: str):
@@ -840,7 +836,7 @@ def are_equal_under_sympy(ground_truth_normalized: str, given_normalized: str):
             simplified = sympy.simplify(sympy_diff)
             if simplified == 0:
                 are_equal = True
-    except:
+    except Exception:
         pass
     return are_equal
 
@@ -898,7 +894,7 @@ def remove_boxed(s):
         assert s[: len(left)] == left
         assert s[-1] == "}"
         return s[len(left) : -1]
-    except:
+    except Exception:
         return None
 
 
@@ -996,53 +992,39 @@ def boxed_reward_fn(model_response, gt_answer, fast=False):
 
 def answer_tag_reward_fn(model_response, gt_answer, fast=False):
     # We are strict about format to evaluate our models.
-    if "</think> <answer>" in model_response and "</answer>" in model_response:
-        model_answer = model_response.split("<answer>")[-1].replace("</answer>", "")
-        if "\\boxed" in model_answer:
-            model_answer = extract_answer(model_answer)
-            if model_answer is None:
-                return {"formatted": True}, 0.0
-        if isinstance(gt_answer, float) or isinstance(gt_answer, int):
-            gt_answer = str(gt_answer)
-        if isinstance(gt_answer, str):
-            is_correct = grade(model_answer, gt_answer, fast)
-        elif isinstance(gt_answer, list):
-            is_correct = False
-            for gt in gt_answer:
-                is_correct |= grade(model_answer, gt, fast)
-        if is_correct:
-            return {"formatted": True}, 1.0  # Correctness reward.
-        else:
-            return (
-                {"formatted": True},
-                0.0,
-            )  # Formatted but wrong answer; no format reward to avoid hacking.
-    else:
+    if "</think> <answer>" not in model_response or "</answer>" not in model_response:
         return {"formatted": False}, 0.0  # Unformatted.
+    model_answer = model_response.split("<answer>")[-1].replace("</answer>", "")
+    if "\\boxed" in model_answer:
+        model_answer = extract_answer(model_answer)
+        if model_answer is None:
+            return {"formatted": True}, 0.0
+    if isinstance(gt_answer, (float, int)):
+        gt_answer = str(gt_answer)
+    if isinstance(gt_answer, str):
+        is_correct = grade(model_answer, gt_answer, fast)
+    elif isinstance(gt_answer, list):
+        is_correct = False
+        for gt in gt_answer:
+            is_correct |= grade(model_answer, gt, fast)
+    return ({"formatted": True}, 1.0) if is_correct else ({"formatted": True}, 0.0)
 
 
 def answer_tag_reward_fn_for_orz(model_response, gt_answer, fast=False):
     # We are a bit less strict for baselines.
-    if "<answer>" in model_response and "</answer>" in model_response:
-        model_answer = model_response.split("<answer>")[-1].replace("</answer>", "")
-        if "\\boxed" in model_answer:
-            model_answer = extract_answer(model_answer)
-            if model_answer is None:
-                return {"formatted": True}, 0.0
-        if isinstance(gt_answer, float) or isinstance(gt_answer, int):
-            gt_answer = str(gt_answer)
-        if isinstance(gt_answer, str):
-            is_correct = grade(model_answer, gt_answer, fast)
-        elif isinstance(gt_answer, list):
-            is_correct = False
-            for gt in gt_answer:
-                is_correct |= grade(model_answer, gt, fast)
-        if is_correct:
-            return {"formatted": True}, 1.0  # Correctness reward.
-        else:
-            return (
-                {"formatted": True},
-                0.0,
-            )  # Formatted but wrong answer; no format reward to avoid hacking.
-    else:
+    if "<answer>" not in model_response or "</answer>" not in model_response:
         return {"formatted": False}, 0.0  # Unformatted.
+    model_answer = model_response.split("<answer>")[-1].replace("</answer>", "")
+    if "\\boxed" in model_answer:
+        model_answer = extract_answer(model_answer)
+        if model_answer is None:
+            return {"formatted": True}, 0.0
+    if isinstance(gt_answer, (float, int)):
+        gt_answer = str(gt_answer)
+    if isinstance(gt_answer, str):
+        is_correct = grade(model_answer, gt_answer, fast)
+    elif isinstance(gt_answer, list):
+        is_correct = False
+        for gt in gt_answer:
+            is_correct |= grade(model_answer, gt, fast)
+    return ({"formatted": True}, 1.0) if is_correct else ({"formatted": True}, 0.0)
