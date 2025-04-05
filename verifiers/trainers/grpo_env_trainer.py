@@ -150,12 +150,23 @@ class GRPOEnvTrainer(GRPOTrainer):
             completion_messages = env_result["messages"]
             completion_mask = env_result["mask"]
 
-        else:
-            completion_ids = [None] * len(all_prompts)
-            completion_messages = [None] * len(all_prompts)
-            completion_mask = [None] * len(all_prompts)
+            # Sanity check
+            for i, ids in enumerate(completion_ids):
+                if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+                    raise ValueError(f"[Rank 0] completion_ids[{i}] is invalid: {ids}")
 
-        completion_ids = broadcast_object_list(completion_ids, from_process=0)
+        else:
+            # Initialize with safely serializable/broadcastable placeholders
+            # To avoid failed broadcasting, NCCL timeouts and bogus OOM errors
+            num_prompts = len(all_prompts)
+            completion_ids = [[] for _ in range(num_prompts)]
+            completion_messages = [["<placeholder>"] for _ in range(num_prompts)]
+            completion_mask = [[0] for _ in range(num_prompts)]
+        try:
+            completion_ids = broadcast_object_list(completion_ids, from_process=0)
+        except Exception as e:
+            print(f"[Rank {self.accelerator.process_index}] Failed broadcast_object_list(completion_ids): {e}")
+            raise
         completion_messages = broadcast_object_list(completion_messages, from_process=0)
         completion_mask = broadcast_object_list(completion_mask, from_process=0)
 
