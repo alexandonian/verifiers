@@ -1,4 +1,5 @@
 import ast
+import concurrent.futures
 import contextlib
 import io
 import resource
@@ -6,8 +7,7 @@ import signal
 import time
 import traceback
 import tracemalloc
-from multiprocessing import Process, Queue
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import List, Optional, TypedDict
 
 
 class CodeResult(TypedDict):
@@ -347,30 +347,6 @@ class ExecutionEnvironment:
                 namespace[module_name] = __import__(module_name)
 
 
-def collect_execution_results(
-    result: Dict[str, Any],
-    stdout_capture: io.StringIO,
-    stderr_capture: io.StringIO,
-    start_time: float,
-) -> Dict[str, Any]:
-    """Collect execution results and update the result dictionary"""
-    # Capture outputs
-    result["output"] = stdout_capture.getvalue()
-    if stderr_capture.getvalue() and not result["error"]:
-        result["error"] = stderr_capture.getvalue()
-
-    # Measure execution time
-    result["execution_time"] = time.time() - start_time
-
-    # Get peak memory usage (if available on this platform)
-    try:
-        result["alt_peak_memory"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    except (AttributeError, resource.error):
-        result["alt_peak_memory"] = -1
-
-    return result
-
-
 def measure_memory_usage(func, *args, **kwargs):
     tracemalloc.start()
     start_snapshot = tracemalloc.take_snapshot()
@@ -493,91 +469,29 @@ def secure_execute_python(
 
 
 def run_secure_execute_in_process(
-    code: str,
-    time_limit: int = 60,
-    memory_limit: int = 100 * 1024 * 1024,
-    allowed_imports: Optional[List[str]] = None,
+    code,
+    time_limit=5,
+    memory_limit=100 * 1024 * 1024,
+    allowed_imports=None,
 ) -> CodeResult:
-    """
-    Run secure_execute_python in a separate process with a timeout.
-
-    Args:
-        secure_execute_python_func: The secure execution function to call
-        code: Python code to execute
-        time_limit: Maximum execution time in seconds
-        memory_limit: Maximum memory usage in bytes
-        allowed_imports: Optional list of additional allowed imports
-
-    Returns:
-        Dictionary containing execution results and metadata
-    """
-    # Queue for returning results
-    result_queue = Queue()
-
-    # Function to run in subprocess
-    def run_execution():
+    with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            secure_execute_python,
+            code=code,
+            time_limit=time_limit,
+            memory_limit=memory_limit,
+            allowed_imports=allowed_imports,
+        )
         try:
-            result = secure_execute_python(
-                code,
-                time_limit=time_limit,
-                memory_limit=memory_limit,
-                allowed_imports=allowed_imports,
-            )
-            result_queue.put(result)
-        except Exception as e:
-            # Handle any exception that occurs
-            result_queue.put(
-                {
-                    "status": "error",
-                    "output": "",
-                    "error": f"Error in execution process: {str(e)}",
-                    "execution_time": 0,
-                    "peak_memory": 0,
-                    "memory_used": 0,
-                    "security_warnings": [],
-                }
-            )
-
-    # Create and start process
-    process = Process(target=run_execution)
-    process.start()
-
-    # Wait for process with timeout
-    process_timeout = time_limit + 5  # Add buffer to the timeout
-    process.join(process_timeout)
-
-    # Check if process is still running
-    if process.is_alive():
-        # Process is still running after timeout, terminate it
-        process.terminate()
-        process.join(1)  # Give it 1 second to terminate
-
-        # If still alive, kill it forcefully
-        if process.is_alive():
-            process.kill()
-            process.join()
-
-        # Return timeout error
-        return {
-            "status": "error",
-            "output": "",
-            "error": f"Process timed out after {process_timeout} seconds",
-            "execution_time": process_timeout,
-            "peak_memory": 0,
-            "memory_used": 0,
-            "security_warnings": [],
-        }
-
-    # Get result from queue if available, otherwise return error
-    if not result_queue.empty():
-        return result_queue.get()
-    else:
-        return {
-            "status": "error",
-            "output": "",
-            "error": "Process terminated without returning a result",
-            "execution_time": 0,
-            "peak_memory": 0,
-            "memory_used": 0,
-            "security_warnings": [],
-        }
+            result = future.result(timeout=time_limit + 5)
+            return result
+        except concurrent.futures.TimeoutError:
+            return {
+                "status": "error",
+                "output": "",
+                "error": f"Execution timed out after {time_limit} seconds",
+                "execution_time": time_limit,
+                "peak_memory": 0,
+                "memory_used": 0,
+                "security_warnings": [],
+            }

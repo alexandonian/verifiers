@@ -1,7 +1,7 @@
 import contextlib
 import inspect
 import json
-from typing import List, Dict, Any, Callable
+from typing import Any, Callable, Dict, List
 
 from datasets import Dataset
 
@@ -10,7 +10,7 @@ from verifiers.envs.multiturn_env import MultiTurnEnv
 from verifiers.parsers import XMLParser
 from verifiers.prompts.system_prompts import DEFAULT_CODE_TOOL_PROMPT_TEMPLATE
 from verifiers.rubrics import CodeToolRubric
-from verifiers.tools.python import run_secure_execute_in_process, run_python
+from verifiers.tools.python import run_secure_execute_in_process
 
 
 def infer_schema_from_function(func: Callable) -> Dict[str, Any]:
@@ -236,8 +236,7 @@ class CodeToolEnv(MultiTurnEnv):
         # with contextlib.suppress(Exception):
         try:
             if hasattr(parsed, "code") and parsed.code is not None:
-                # code_result = run_secure_execute_in_process(parsed.code.strip())
-                code_result = run_python(parsed.code.strip())
+                code_result = run_secure_execute_in_process(parsed.code.strip())
                 code_output = code_result["output"]
                 if len(code_output.strip()) == 0:
                     code_output = "Error: Code execution returned empty output."
@@ -255,7 +254,7 @@ class CodeToolEnv(MultiTurnEnv):
                     )
                 )
         except Exception as e:
-            print( "Error during code execution:", e)
+            print("Error during code execution:", e)
             print(e)
 
         if outputs:
