@@ -1,6 +1,7 @@
 import gzip
 import json
 import os
+from pathlib import Path
 import random
 from typing import List, Dict, Callable, Any
 
@@ -340,3 +341,21 @@ def write_json(data: dict | list[dict], filename: str, indent: int | None = 2) -
     else:
         with open(filename, "w") as fp:
             json.dump(data, fp, indent=indent)
+
+
+def read_json(filename: str | Path) -> dict:
+    """Load a json file.
+
+    Args:
+        filename (str): The path to the json file.
+
+    Returns:
+        dict: The dictionary representation of the json file.
+    """
+    if str(filename).endswith(".gz"):
+        with open(filename, "rb") as gzfp:
+            with gzip.open(gzfp, "rt") as fp:
+                return json.load(fp)
+    else:
+        with open(filename, "r") as fp:
+            return json.load(fp)

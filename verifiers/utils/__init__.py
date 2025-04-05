@@ -5,6 +5,7 @@ from .data_utils import (
     format_dataset,
     format_prompt,
     preprocess_dataset,
+    read_json,
     write_json,
 )
 from .logging_utils import print_prompt_completions_sample, setup_logging
@@ -16,11 +17,12 @@ __all__ = [
     "format_dataset",
     "format_prompt",
     "get_default_grpo_config",
-    "get_model",
     "get_model_and_tokenizer",
+    "get_model",
     "get_tokenizer",
     "preprocess_dataset",
     "print_prompt_completions_sample",
+    "read_json",
     "setup_logging",
     "write_json",
 ]
