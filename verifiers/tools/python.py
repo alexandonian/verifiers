@@ -483,7 +483,7 @@ def secure_execute_python(
             result["error"] = stderr_capture.getvalue()
 
         # Measure execution time
-        result["execution_time"] = time.time() - start_time
+        result["execution_time"] = round(time.time() - start_time, 5)
 
     return result
 
