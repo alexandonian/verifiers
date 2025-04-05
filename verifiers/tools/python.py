@@ -473,6 +473,12 @@ def secure_execute_python(
 
         # Collect execution results
         result["output"] = stdout_capture.getvalue()
+
+        # If the sandbox captures produced an error message, append it to the output
+        if result["error"]:
+            result["output"] = result["output"] + f"\n{result['error']}"
+
+        # If there was any error output captured in stderr, treat it as an error
         if stderr_capture.getvalue() and not result["error"]:
             result["error"] = stderr_capture.getvalue()
 
