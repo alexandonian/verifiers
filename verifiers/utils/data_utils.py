@@ -320,7 +320,7 @@ def format_dataset(
     )
 
 
-def write_json(data: dict | list[dict], filename: str) -> None:
+def write_json(data: dict | list[dict], filename: str, indent: int | None = 2) -> None:
     """Write an iterable of dictionaries to json.
 
     Args:
@@ -336,7 +336,7 @@ def write_json(data: dict | list[dict], filename: str) -> None:
         mode = "wb"
         with open(filename, mode) as fp:
             with gzip.GzipFile(fileobj=fp, mode="wb") as gzfp:
-                gzfp.write((json.dumps(data) + "\n").encode("utf-8"))
+                gzfp.write((json.dumps(data, indent=indent) + "\n").encode("utf-8"))
     else:
         with open(filename, "w") as fp:
-            json.dump(data, fp)
+            json.dump(data, fp, indent=indent)
