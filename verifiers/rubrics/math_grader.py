@@ -24,8 +24,7 @@ from typing import Optional
 
 import sympy
 from latex2sympy2_extended import latex2sympy
-from math_verify import (ExprExtractionConfig, LatexExtractionConfig, parse,
-                         verify)
+from math_verify import ExprExtractionConfig, LatexExtractionConfig, parse, verify
 from pylatexenc import latex2text
 from sympy import N, simplify
 from sympy.parsing import sympy_parser
@@ -42,9 +41,9 @@ def mathd_normalize_answer(answer: Optional[str]) -> Optional[str]:
         # Remove enclosing `\text{}`.
         m = re.search("^\\\\text\{(?P<text>.+?)\}$", answer)
         if m is not None:
-            answer = m.group("text").strip()
+            answer = m["text"].strip()
         return _strip_string(answer)
-    except:
+    except Exception:
         return answer
 
 
@@ -578,26 +577,6 @@ def symbolic_equal(a, b):
     return False
 
 
-def _is_latex_equal(str1, str2):
-    try:
-        sym1, val1 = latex_eval(str1)
-        sym2, val2 = latex_eval(str2)
-        if sym1 == sym2 or val1 == val2:
-            return True
-        else:
-            raise ValueError
-    except Exception:  # noqa
-        try:
-            norm1, norm2 = normalize_final_answer(str1), normalize_final_answer(str2)
-            sym1, val1 = latex_eval(norm1)
-            sym2, val2 = latex_eval(norm2)
-            if sym1 == sym2 or val1 == val2:
-                return True
-        except Exception:  # noqa
-            return norm1 == norm2
-    return False
-
-
 def is_latex_equal(given_answer: str, ground_truth: str) -> bool:
     try:
         with timeout(1):
@@ -617,9 +596,9 @@ def is_latex_equal(given_answer: str, ground_truth: str) -> bool:
                 # Next call math verify.
                 given_answer.replace("\n", "")
                 ground_truth.replace("\n", "")
-                if not "$" in given_answer:
+                if "$" not in given_answer:
                     given_answer = f"${given_answer}$"
-                if not "$" in ground_truth:
+                if "$" not in ground_truth:
                     ground_truth = f"${ground_truth}$"
                 return verify(
                     parse(
@@ -629,7 +608,7 @@ def is_latex_equal(given_answer: str, ground_truth: str) -> bool:
                             ExprExtractionConfig(),
                         ),
                         fallback_mode="no_fallback",
-                        extraction_mode=["first_match"],
+                        extraction_mode=["first_match"],  # type: ignore
                         parsing_timeout=1,
                     ),
                     parse(
@@ -639,7 +618,7 @@ def is_latex_equal(given_answer: str, ground_truth: str) -> bool:
                             ExprExtractionConfig(),
                         ),
                         fallback_mode="no_fallback",
-                        extraction_mode=["first_match"],
+                        extraction_mode=["first_match"],  # type: ignore
                         parsing_timeout=1,
                     ),
                     timeout_seconds=1,
@@ -713,7 +692,7 @@ def _is_float(num: str) -> bool:
 def _is_int(x: float) -> bool:
     try:
         return abs(x - int(round(x))) <= 1e-7
-    except:
+    except Exception:
         return False
 
 
@@ -724,16 +703,16 @@ def _is_frac(expr: str) -> bool:
 def _str_is_int(x: str) -> bool:
     try:
         x = _strip_properly_formatted_commas(x)
-        x = float(x)
-        return abs(x - int(round(x))) <= 1e-7
-    except:
+        x_float = float(x)
+        return abs(x_float - int(round(x_float))) <= 1e-7
+    except Exception:
         return False
 
 
-def _str_to_int(x: str) -> bool:
+def _str_to_int(x: str) -> int:
     x = x.replace(",", "")
-    x = float(x)
-    return int(x)
+    x_float = float(x)
+    return int(x_float)
 
 
 def _inject_implicit_mixed_number(step: str):
@@ -742,8 +721,7 @@ def _inject_implicit_mixed_number(step: str):
     e.g. 7 3/4 => 7+3/4
     """
     p1 = re.compile("([0-9]) +([0-9])")
-    step = p1.sub("\\1+\\2", step)  ## implicit mults
-    return step
+    return p1.sub("\\1+\\2", step)
 
 
 def _strip_properly_formatted_commas(expr: str):
@@ -982,9 +960,7 @@ def grade_answer_mathd(given_answer: str, ground_truth: str) -> bool:
 
 
 def extract_answer(passage: str) -> str:
-    if "\\boxed" in passage:
-        return extract_boxed_answer(passage)
-    return None
+    return extract_boxed_answer(passage) if "\\boxed" in passage else None
 
 
 def grade(model_answer: str, gt_answer: str, fast: bool = True):
@@ -1007,7 +983,7 @@ def boxed_reward_fn(model_response, gt_answer, fast=False):
     model_answer = extract_answer(model_response)
     if model_answer is None:
         return {"formatted": False}, 0.0  # Cannot even parse anything.
-    if isinstance(gt_answer, float) or isinstance(gt_answer, int):
+    if isinstance(gt_answer, (float, int)):
         gt_answer = str(gt_answer)
     if isinstance(gt_answer, str):
         is_correct = grade(model_answer, gt_answer, fast)
@@ -1015,12 +991,7 @@ def boxed_reward_fn(model_response, gt_answer, fast=False):
         is_correct = False
         for gt in gt_answer:
             is_correct |= grade(model_answer, gt, fast)
-    if is_correct:
-        return {"formatted": True}, 1.0  # Correctness reward.
-    else:
-        return {
-            "formatted": True
-        }, 0.0  # Formatted but wrong answer; no format reward to avoid hacking.
+    return ({"formatted": True}, 1.0) if is_correct else ({"formatted": True}, 0.0)
 
 
 def answer_tag_reward_fn(model_response, gt_answer, fast=False):
