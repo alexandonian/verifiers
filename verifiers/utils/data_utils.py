@@ -1,3 +1,6 @@
+import gzip
+import json
+import os
 import random
 from typing import List, Dict, Callable, Any
 
@@ -315,3 +318,25 @@ def format_dataset(
         },
         num_proc=10,
     )
+
+
+def write_json(filename: str, data: dict | list[dict]):
+    """Write an iterable of dictionaries to json.
+
+    Args:
+        filename (str): The path to the jsonl file.
+        data (dict | Iterable[dict]): The data to write to the json file.
+
+    Example:
+        >>> write_json("/path/to/file.json", [{"key": "value"}])
+
+    """
+    filename = os.path.expanduser(filename)
+    if filename.endswith(".gz"):
+        mode = "wb"
+        with open(filename, mode) as fp:
+            with gzip.GzipFile(fileobj=fp, mode="wb") as gzfp:
+                gzfp.write((json.dumps(data) + "\n").encode("utf-8"))
+    else:
+        with open(filename, "w") as fp:
+            json.dump(data, fp)
