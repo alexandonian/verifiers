@@ -1,3 +1,4 @@
+import os
 import ast
 import concurrent.futures
 import contextlib
@@ -8,6 +9,9 @@ import time
 import traceback
 import tracemalloc
 from typing import List, Optional, TypedDict
+from pyston import PystonClient, File
+from pyston.models import Output
+import asyncio
 
 
 class CodeResult(TypedDict):
@@ -16,8 +20,42 @@ class CodeResult(TypedDict):
     error: str
     execution_time: float
     security_warnings: list[str]
-    peak_memory: int
     memory_used: int
+
+
+PISTON_BASE_URL = os.environ.get(
+    "PISTON_BASE_URL",
+    "http://localhost:2000/api/v2/",  # Default URL if not set
+)
+
+
+async def _run_python(code: str, run_timeout: int = 30000) -> Output:
+    client = PystonClient(base_url=PISTON_BASE_URL)
+    return await client.execute(
+        "python",
+        [File(code)],
+        run_timeout=run_timeout,  # Timeout in milliseconds
+    )
+
+
+def run_python(code: str, run_timeout: int = 3000) -> CodeResult:
+    """Run the Python code in a synchronous manner."""
+
+    output = asyncio.run(_run_python(code, run_timeout=run_timeout))
+    return {
+        "status": "success"
+        if output.run_stage and output.run_stage.code == 0
+        else "error",
+        "output": str(output),
+        "error": output.run_stage.stdrr.strip()
+        if output.run_stage
+        and output.run_stage.stdrr is not None
+        and output.run_stage.code != 0
+        else "",
+        "execution_time": output.raw_json["run"]["wall_time"],
+        "memory_used": output.raw_json["run"]["memory"],
+        "security_warnings": [],  # No security warnings from Piston API
+    }
 
 
 def python(code: str, timeout: int = 30) -> str:
@@ -56,7 +94,7 @@ def python(code: str, timeout: int = 30) -> str:
         return f"Error: Code execution timed out after {timeout} seconds"
 
 
-def run_python(code: str, timeout: int = 10) -> CodeResult:
+def run_python_raw(code: str, timeout: int = 10) -> CodeResult:
     start_time = time.time()
     # For now until we implement memory tracking in the subprocess, we will not measure memory usage.
     # result, memory_used, peak_memory = measure_memory_usage(
