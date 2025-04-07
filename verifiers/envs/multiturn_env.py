@@ -459,6 +459,8 @@ class MultiTurnEnv(Environment):
 
             reward_funcs = self.get_reward_funcs()
             rewards = {}
+            avg_rewards = {}
+
 
             for reward_func in reward_funcs:
                 func_rewards = reward_func(**results)  # type: ignore
@@ -466,9 +468,10 @@ class MultiTurnEnv(Environment):
                 func_reward_avg = sum(func_rewards) / max(1, len(func_rewards))
                 func_name = reward_func.__name__  # type: ignore
                 print(f"{func_name}: {func_reward_avg}")
-                rewards[func_name] = func_reward_avg
+                avg_rewards[func_name] = func_reward_avg
+                rewards[func_name] = func_rewards
 
-            return rewards
+            return {"avg_rewards":avg_rewards, "rewards":rewards,  "results":results}
 
         # Run the evaluation function
         return run_evaluation()
