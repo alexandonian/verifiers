@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Sequence, Callable
+from typing import Any, Dict, List, Sequence
 import logging
 
 from datasets import Dataset
@@ -7,8 +7,8 @@ from datasets import Dataset
 from verifiers import RewardFunc
 from ..imports import LLM, SamplingParams  # type: ignore
 
-class Environment(ABC):
 
+class Environment(ABC):
     def __init__(self, **kwargs: Any):
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -16,8 +16,9 @@ class Environment(ABC):
         self.tokenizer = None
         self.dataset = None
         self.eval_dataset = None
-        self.eot_id = 151643
-        self.message_end_id = 151645
+        self.pad_token_id = kwargs.get("pad_token_id", 151643)
+        self.eos_token_id = kwargs.get("eos_token_id", 151645)
+        self.new_line_token_id = kwargs.get("new_line_token_id", 198)
         self.reward_funcs = []
         self.reward_weights = []
 
@@ -32,15 +33,17 @@ class Environment(ABC):
     @abstractmethod
     def get_reward_funcs(self, **kwargs: Any) -> List[RewardFunc]:
         pass
-    
+
     @abstractmethod
     def get_reward_weights(self, **kwargs: Any) -> List[float]:
         pass
-    
+
     @abstractmethod
-    def generate(self,
-                 prompts: List[List[Dict[str, Any]]],
-                 llm: LLM,
-                 sampling_params: SamplingParams,
-                 **kwargs: Any) -> Dict[str, List[Sequence[int]] | List[str] | List[List[Dict[str, Any]]]]:
+    def generate(
+        self,
+        prompts: List[List[Dict[str, Any]]],
+        llm: LLM,
+        sampling_params: SamplingParams,
+        **kwargs: Any,
+    ) -> Dict[str, List[Sequence[int]] | List[str] | List[List[Dict[str, Any]]]]:
         pass

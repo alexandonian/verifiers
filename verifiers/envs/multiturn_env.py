@@ -1,7 +1,7 @@
 import random
 import time
 from abc import abstractmethod
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from typing import Any, Dict, List, Sequence, Tuple
 
@@ -152,91 +152,118 @@ class MultiTurnEnv(Environment):
 
         # for i, j in enumerate(live_indices):
         def update_state(j, llm_response):
-            # sleep for 0-1 seconds to avoid rate limiting
-            time.sleep(self.sleep_time * random.random())
+            try:
+                # sleep for 0-1 seconds to avoid rate limiting
+                time.sleep(self.sleep_time * random.random())
 
-            state = deepcopy(states[j])
-            if len(state["prompt_ids"]) == 0:
-                state["prompt_ids"] = llm_response.prompt_token_ids
-            state["messages"].append(
-                {"role": "assistant", "content": llm_response.outputs[0].text}
-            )
+                state = deepcopy(states[j])
+                if len(state["prompt_ids"]) == 0:
+                    state["prompt_ids"] = llm_response.prompt_token_ids
 
-            # get token lengths of env response and new completion
-            total_prev_len = len(state["prompt_ids"]) + len(state["completion_ids"])
-            env_response_len = len(list(llm_response.prompt_token_ids)) - total_prev_len  # type: ignore
-            new_completion_len = len(llm_response.outputs[0].token_ids)
-
-            # update completion masks
-            state["completion_mask"].extend([self.env_mask] * env_response_len)
-            state["completion_mask"].extend([1] * new_completion_len)
-
-            # update completion ids
-            state["completion_ids"] = list(llm_response.prompt_token_ids)  # type: ignore
-            state["completion_ids"].extend(list(llm_response.outputs[0].token_ids))
-            state["completion_ids"] = state["completion_ids"][
-                len(state["prompt_ids"]) :
-            ]
-
-            if (
-                state["completion_ids"][-1] != 198
-                and state["completion_ids"][-2] != self.message_end_id
-            ):
-                state["completion_ids"].append(self.message_end_id)
-                state["completion_ids"].append(198)
-                state["completion_mask"].append(1)
-                state["completion_mask"].append(1)
-
-            if len(state["completion_ids"]) > len(state["completion_mask"]):  # type: ignore
-                state["completion_mask"].extend(
-                    [1] * (len(state["completion_ids"]) - len(state["completion_mask"]))
-                )  # type: ignore
-            if len(state["completion_mask"]) > len(state["completion_ids"]):  # type: ignore
-                state["completion_mask"] = state["completion_mask"][
-                    : len(state["completion_ids"])
-                ]  # type: ignore
-
-            if (
-                self.is_completed(state["messages"])
-                or len(state["completion_ids"]) > sampling_params.max_tokens - 1
-            ):  # type: ignore
-                state["completed"] = True
-                state["completion_ids"] = state["completion_ids"][
-                    : sampling_params.max_tokens
-                ]
-                state["completion_mask"] = state["completion_mask"][
-                    : len(state["completion_ids"])
-                ]
-            else:
-                state["messages"].append(self.env_response(state["messages"]))
-
-            # enforce that the completion mask and completion ids are the same length
-            # weird bug that happens rarely and only for certain models; something tokenizer related :(
-            if len(state["completion_mask"]) != len(state["completion_ids"]):
-                print(state["messages"])
-                print(state["completion_mask"])
-                print(state["completion_ids"])
-                min_len = min(
-                    len(state["completion_mask"]), len(state["completion_ids"])
+                state["messages"].append(
+                    {"role": "assistant", "content": llm_response.outputs[0].text}
                 )
-                state["completion_mask"] = state["completion_mask"][:min_len]
-                state["completion_ids"] = state["completion_ids"][:min_len]
 
-            return j, state
+                # get token lengths of env response and new completion
+                total_prev_len = len(state["prompt_ids"]) + len(state["completion_ids"])
+                env_response_len = (
+                    len(list(llm_response.prompt_token_ids)) - total_prev_len
+                )  # type: ignore
+                new_completion_len = len(llm_response.outputs[0].token_ids)
+
+                # update completion masks
+                state["completion_mask"].extend([self.env_mask] * env_response_len)
+                state["completion_mask"].extend([1] * new_completion_len)
+
+                # update completion ids
+                state["completion_ids"] = list(llm_response.prompt_token_ids)  # type: ignore
+                state["completion_ids"].extend(list(llm_response.outputs[0].token_ids))
+                state["completion_ids"] = state["completion_ids"][
+                    len(state["prompt_ids"]) :
+                ]
+
+                if (
+                    state["completion_ids"][-1] != self.new_line_token_id
+                    and state["completion_ids"][-2] != self.eos_token_id
+                ):
+                    state["completion_ids"].append(self.eos_token_id)
+                    state["completion_ids"].append(self.new_line_token_id)
+                    state["completion_mask"].append(1)
+                    state["completion_mask"].append(1)
+
+                if len(state["completion_ids"]) > len(state["completion_mask"]):  # type: ignore
+                    state["completion_mask"].extend(
+                        [1]
+                        * (len(state["completion_ids"]) - len(state["completion_mask"]))
+                    )  # type: ignore
+                if len(state["completion_mask"]) > len(state["completion_ids"]):  # type: ignore
+                    state["completion_mask"] = state["completion_mask"][
+                        : len(state["completion_ids"])
+                    ]  # type: ignore
+
+                if (
+                    self.is_completed(state["messages"])
+                    or len(state["completion_ids"]) > sampling_params.max_tokens - 1
+                ):  # type: ignore
+                    state["completed"] = True
+                    state["completion_ids"] = state["completion_ids"][
+                        : sampling_params.max_tokens
+                    ]
+                    state["completion_mask"] = state["completion_mask"][
+                        : len(state["completion_ids"])
+                    ]
+                else:
+                    state["messages"].append(self.env_response(state["messages"]))
+
+                # enforce that the completion mask and completion ids are the same length
+                # weird bug that happens rarely and only for certain models; something tokenizer related :(
+                if len(state["completion_mask"]) != len(state["completion_ids"]):
+                    print(state["messages"])
+                    print(state["completion_mask"])
+                    print(state["completion_ids"])
+                    min_len = min(
+                        len(state["completion_mask"]), len(state["completion_ids"])
+                    )
+                    state["completion_mask"] = state["completion_mask"][:min_len]
+                    state["completion_ids"] = state["completion_ids"][:min_len]
+
+                return j, state
+
+            except Exception as e:
+                print(f"Error in update_state for index {j}: {str(e)}")
+                # Return the original state to avoid losing data
+                return j, states[j]
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            num_live = len(live_indices)
-            results = list(
-                tqdm(
-                    executor.map(
-                        lambda args: update_state(*args),
-                        [(j, llm_responses[i]) for i, j in enumerate(live_indices)],
-                    ),
-                    total=num_live,
-                    desc="Stepping through states",
-                    unit="state",
-                )
-            )
+            # Submit all tasks
+            futures = {
+                executor.submit(update_state, j, llm_responses[i]): j
+                for i, j in enumerate(live_indices)
+            }
+            # Collect results with timeout handling
+            results = []
+            task_timeout = 60  # 60 second timeout per task
+
+            for future in tqdm(
+                as_completed(futures, timeout=None),  # No overall timeout
+                total=len(futures),
+                desc="Stepping through states",
+                unit="state",
+            ):
+                j = futures[future]
+                try:
+                    result = future.result(timeout=task_timeout)
+                    results.append(result)
+                except TimeoutError:
+                    print(f"Task for state {j} timed out after {task_timeout} seconds")
+                    # Keep the original state and mark as completed to prevent further processing
+                    states[j]["completed"] = True
+                    results.append((j, states[j]))
+                except Exception as e:
+                    print(f"Task for state {j} raised an exception: {e}")
+                    # Keep the original state and mark as completed
+                    states[j]["completed"] = True
+                    results.append((j, states[j]))
 
         for j, state in results:
             states[j] = state
@@ -468,7 +495,6 @@ class MultiTurnEnv(Environment):
             rewards = {}
             avg_rewards = {}
 
-
             for reward_func in reward_funcs:
                 func_rewards = reward_func(**results)  # type: ignore
                 func_rewards = [fr for fr in func_rewards if fr is not None]
@@ -478,7 +504,7 @@ class MultiTurnEnv(Environment):
                 avg_rewards[func_name] = func_reward_avg
                 rewards[func_name] = func_rewards
 
-            return {"avg_rewards":avg_rewards, "rewards":rewards,  "results":results}
+            return {"avg_rewards": avg_rewards, "rewards": rewards, "results": results}
 
         # Run the evaluation function
         return run_evaluation()
