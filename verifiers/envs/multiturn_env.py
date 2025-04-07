@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 
 from datasets import Dataset
 from pydantic import BaseModel
+from tqdm import tqdm
 
 from verifiers.envs.environment import Environment
 from verifiers.inference.vllm_client import VLLMClient
@@ -59,7 +60,7 @@ class MultiTurnEnv(Environment):
         mask_env_response: bool = True,
         max_workers: int = 10,
         max_steps: int = 10,
-        sleep_time: float = 1.0,
+        sleep_time: float = 0.1,
         **kwargs,
     ):
         if few_shot is None:
@@ -224,10 +225,16 @@ class MultiTurnEnv(Environment):
             return j, state
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            num_live = len(live_indices)
             results = list(
-                executor.map(
-                    lambda args: update_state(*args),
-                    [(j, llm_responses[i]) for i, j in enumerate(live_indices)],
+                tqdm(
+                    executor.map(
+                        lambda args: update_state(*args),
+                        [(j, llm_responses[i]) for i, j in enumerate(live_indices)],
+                    ),
+                    total=num_live,
+                    desc="Stepping through states",
+                    unit="state",
                 )
             )
 

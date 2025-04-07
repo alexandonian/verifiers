@@ -31,14 +31,16 @@ PISTON_BASE_URL = os.environ.get(
 
 async def _run_python(code: str, run_timeout: int = 30000) -> Output:
     client = PystonClient(base_url=PISTON_BASE_URL)
-    return await client.execute(
+    out = await client.execute(
         "python",
         [File(code)],
         run_timeout=run_timeout,  # Timeout in milliseconds
     )
+    await client.close_session()
+    return out
 
 
-def run_python(code: str, run_timeout: int = 3000) -> CodeResult:
+def run_python(code: str, run_timeout: int = 30000) -> CodeResult:
     """Run the Python code in a synchronous manner."""
 
     output = asyncio.run(_run_python(code, run_timeout=run_timeout))
@@ -107,7 +109,6 @@ def run_python_raw(code: str, timeout: int = 10) -> CodeResult:
         "output": result if isinstance(result, str) else "",
         "error": result if has_error else "",
         "execution_time": round(time.time() - start_time, 5),
-        "peak_memory": 0,
         "memory_used": 0,
         "security_warnings": [],
     }
@@ -443,7 +444,6 @@ def secure_execute_python(
         "output": "",
         "error": "",
         "execution_time": 0,
-        "peak_memory": 0,
         "security_warnings": [],
         "memory_used": 0,
     }
@@ -485,14 +485,7 @@ def secure_execute_python(
             # Calculate memory usage
             stats = final_snapshot.compare_to(baseline, "lineno")
             memory_used = sum(stat.size_diff for stat in stats)
-            peak_memory = (
-                max(stat.size for stat in final_snapshot.statistics("filename"))
-                if final_snapshot.statistics("filename")
-                else 0
-            )
-
             result["memory_used"] = memory_used
-            result["peak_memory"] = peak_memory
         result["status"] = "success"
 
     except TimeoutError:
@@ -549,7 +542,6 @@ def run_secure_execute_in_process(
                 "output": f"Execution timed out after {time_limit} seconds",
                 "error": f"Execution timed out after {time_limit} seconds",
                 "execution_time": time_limit,
-                "peak_memory": 0,
                 "memory_used": 0,
                 "security_warnings": [],
             }

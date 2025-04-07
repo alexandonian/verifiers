@@ -1,10 +1,11 @@
 import warnings
-from typing import Optional, Union, Any
+from typing import Any, Optional, Union
 
+import torch
+import trl.extras.vllm_client
 from accelerate.utils import broadcast_object_list, gather, gather_object
 from datasets import Dataset, IterableDataset
-from peft import PeftConfig  # type: ignore
-import torch
+from peft import PeftConfig
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -12,20 +13,19 @@ from transformers import (
     TrainerCallback,
     is_wandb_available,
 )
-from verifiers import RewardFunc
-from verifiers.envs.environment import Environment
-from verifiers.utils.logging_utils import print_prompt_completions_sample
-from verifiers.imports import SamplingParams
-from verifiers.inference.vllm_client import VLLMClient
-
-# monkey patch vllm client
-import trl.extras.vllm_client
-
-trl.extras.vllm_client.VLLMClient = VLLMClient
-
-from trl import GRPOTrainer, GRPOConfig  # noqa: E402
 from trl.data_utils import maybe_apply_chat_template
 from trl.import_utils import is_rich_available
+
+from verifiers import RewardFunc
+from verifiers.envs.environment import Environment
+from verifiers.imports import SamplingParams
+from verifiers.inference.vllm_client import VLLMClient
+from verifiers.utils.logging_utils import print_prompt_completions_sample
+
+# monkey patch vllm client
+trl.extras.vllm_client.VLLMClient = VLLMClient
+
+from trl import GRPOConfig, GRPOTrainer  # noqa: E402
 from trl.trainer.utils import pad  # noqa: E402
 
 if is_wandb_available():
@@ -152,7 +152,9 @@ class GRPOEnvTrainer(GRPOTrainer):
 
             # Sanity check
             for i, ids in enumerate(completion_ids):
-                if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+                if not isinstance(ids, list) or not all(
+                    isinstance(x, int) for x in ids
+                ):
                     raise ValueError(f"[Rank 0] completion_ids[{i}] is invalid: {ids}")
 
         else:
@@ -165,8 +167,9 @@ class GRPOEnvTrainer(GRPOTrainer):
         try:
             completion_ids = broadcast_object_list(completion_ids, from_process=0)
         except Exception as e:
-            print(f"[Rank {self.accelerator.process_index}] Failed broadcast_object_list(completion_ids): {e}")
-            raise
+            print(
+                f"[Rank {self.accelerator.process_index}] Failed broadcast_object_list(completion_ids): {e}"
+            )
         completion_messages = broadcast_object_list(completion_messages, from_process=0)
         completion_mask = broadcast_object_list(completion_mask, from_process=0)
 

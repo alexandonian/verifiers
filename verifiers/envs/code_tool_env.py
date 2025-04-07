@@ -1,4 +1,3 @@
-import contextlib
 import inspect
 import json
 from typing import Any, Callable, Dict, List
@@ -222,7 +221,7 @@ class CodeToolEnv(MultiTurnEnv):
         parsed = self.llm_parser.parse(messages[-1]["content"], strict=False)
         # Check if we got a valid tool field (not just None from failed parsing)
         outputs = []
-        with contextlib.suppress(Exception):
+        try:
             if hasattr(parsed, "tool") and parsed.tool is not None:
                 tool_result = self.call_tool(parsed.tool)
                 if len(tool_result.strip()) > 0:
@@ -232,8 +231,10 @@ class CodeToolEnv(MultiTurnEnv):
                 outputs.append(
                     self.env_parser.format(strict=False, tool_result=tool_result)
                 )
+        except Exception as e:
+            print("Error during tool execution:", e)
+            outputs.append(f"Error: {str(e)}")
 
-        # with contextlib.suppress(Exception):
         try:
             if hasattr(parsed, "code") and parsed.code is not None:
                 # code_result = run_secure_execute_in_process(parsed.code.strip())
@@ -257,6 +258,7 @@ class CodeToolEnv(MultiTurnEnv):
         except Exception as e:
             print("Error during code execution:", e)
             print(e)
+            outputs.append(f"Error during code execution: {str(e)}")
 
         if outputs:
             return {
