@@ -3,11 +3,12 @@ import time
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple, TypedDict
 
 from datasets import Dataset
 from pydantic import BaseModel
 from tqdm import tqdm
+from vllm.outputs import RequestOutput
 
 from verifiers.envs.environment import Environment
 from verifiers.inference.vllm_client import VLLMClient
@@ -30,6 +31,15 @@ class ChatResponse(BaseModel):
     responses: List[ChatResponseItem]
 
 
+class State(TypedDict):
+    messages: list[dict[str, str]]
+    prompt_messages: int
+    prompt_ids: list[int]
+    completed: bool
+    completion_ids: list[int]
+    completion_mask: list[int]
+
+
 def dict_to_chat_response(data: Dict[str, Any]) -> ChatResponse:
     """
     Recursively convert a dictionary to a ChatResponse object
@@ -47,6 +57,25 @@ def dict_to_chat_response(data: Dict[str, Any]) -> ChatResponse:
 
     # Finally, convert the entire dict to a ChatResponse object
     return ChatResponse(**data)
+
+
+def request_output_to_chat_response(data: list[RequestOutput]) -> ChatResponse:
+    """
+    Convert a list of RequestOutput objects to a ChatResponse object.
+    Each RequestOutput is converted to a ChatResponseItem.
+    """
+    responses = []
+    for output in data:
+        prompt_token_ids = output.prompt_token_ids or []
+        outputs = [
+            ChatOutput(token_ids=list(resp.token_ids), text=resp.text)
+            for resp in output.outputs
+        ]
+        responses.append(
+            ChatResponseItem(prompt_token_ids=prompt_token_ids, outputs=outputs)
+        )
+
+    return ChatResponse(responses=responses)
 
 
 class MultiTurnEnv(Environment):
@@ -122,10 +151,10 @@ class MultiTurnEnv(Environment):
 
     def step(
         self,
-        states: List[Dict[str, Any]],
+        states: list[State],
         llm: LLM | VLLMClient,
         sampling_params: SamplingParams,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[State]:
         live_indices = [i for i, s in enumerate(states) if not s["completed"]]
         messages_to_step = [states[i]["messages"] for i in live_indices]
 
@@ -147,16 +176,19 @@ class MultiTurnEnv(Environment):
             llm_responses = dict_to_chat_response(llm_responses).responses
         else:
             llm_responses = llm.chat(
-                messages_to_step, sampling_params=sampling_params, use_tqdm=False
-            )  # type: ignore
+                messages_to_step,  # type: ignore
+                sampling_params=sampling_params,
+                use_tqdm=False,
+            )
+            llm_responses = request_output_to_chat_response(llm_responses).responses
 
         # for i, j in enumerate(live_indices):
-        def update_state(j, llm_response):
+        def update_state(j, llm_response: ChatResponseItem) -> tuple[int, State]:
             try:
                 # sleep for 0-1 seconds to avoid rate limiting
                 time.sleep(self.sleep_time * random.random())
 
-                state = deepcopy(states[j])
+                state: State = deepcopy(states[j])
                 if len(state["prompt_ids"]) == 0:
                     state["prompt_ids"] = llm_response.prompt_token_ids
 
@@ -168,7 +200,7 @@ class MultiTurnEnv(Environment):
                 total_prev_len = len(state["prompt_ids"]) + len(state["completion_ids"])
                 env_response_len = (
                     len(list(llm_response.prompt_token_ids)) - total_prev_len
-                )  # type: ignore
+                )
                 new_completion_len = len(llm_response.outputs[0].token_ids)
 
                 # update completion masks
@@ -176,7 +208,7 @@ class MultiTurnEnv(Environment):
                 state["completion_mask"].extend([1] * new_completion_len)
 
                 # update completion ids
-                state["completion_ids"] = list(llm_response.prompt_token_ids)  # type: ignore
+                state["completion_ids"] = list(llm_response.prompt_token_ids)
                 state["completion_ids"].extend(list(llm_response.outputs[0].token_ids))
                 state["completion_ids"] = state["completion_ids"][
                     len(state["prompt_ids"]) :
@@ -191,20 +223,20 @@ class MultiTurnEnv(Environment):
                     state["completion_mask"].append(1)
                     state["completion_mask"].append(1)
 
-                if len(state["completion_ids"]) > len(state["completion_mask"]):  # type: ignore
+                if len(state["completion_ids"]) > len(state["completion_mask"]):
                     state["completion_mask"].extend(
                         [1]
                         * (len(state["completion_ids"]) - len(state["completion_mask"]))
-                    )  # type: ignore
+                    )
                 if len(state["completion_mask"]) > len(state["completion_ids"]):  # type: ignore
                     state["completion_mask"] = state["completion_mask"][
                         : len(state["completion_ids"])
-                    ]  # type: ignore
+                    ]
 
                 if (
                     self.is_completed(state["messages"])
                     or len(state["completion_ids"]) > sampling_params.max_tokens - 1
-                ):  # type: ignore
+                ):
                     state["completed"] = True
                     state["completion_ids"] = state["completion_ids"][
                         : sampling_params.max_tokens
@@ -314,7 +346,7 @@ class MultiTurnEnv(Environment):
         client: Any,
         model: str,
         messages: List[Dict[str, str]],
-        sampling_args: Dict[str, Any] = {},
+        sampling_args: Dict[str, Any] = None,
         **kwargs: Any,
     ) -> Tuple[List[Dict[str, str]], bool]:
         """
@@ -329,6 +361,8 @@ class MultiTurnEnv(Environment):
         Returns:
             Updated messages list with assistant response and possibly environment response
         """
+        if sampling_args is None:
+            sampling_args = {}
         messages_copy = deepcopy(messages)
 
         try:
