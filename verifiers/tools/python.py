@@ -44,11 +44,13 @@ def run_python(code: str, run_timeout: int = 30000) -> CodeResult:
     """Run the Python code in a synchronous manner."""
 
     output = asyncio.run(_run_python(code, run_timeout=run_timeout))
+    is_success = output.run_stage and output.run_stage.code == 0
+    code_output = str(output)
+    if not is_success and output.raw_json["run"]["message"] is not None:
+        code_output = f"{code_output.rstrip()}\n{output.raw_json['run']['message']}"
     return {
-        "status": "success"
-        if output.run_stage and output.run_stage.code == 0
-        else "error",
-        "output": str(output),
+        "status": "success" if is_success else "error",
+        "output": code_output,
         "error": output.run_stage.stdrr.strip()
         if output.run_stage
         and output.run_stage.stdrr is not None
