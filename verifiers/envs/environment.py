@@ -45,5 +45,5 @@ class Environment(ABC):
         llm: LLM,
         sampling_params: SamplingParams,
         **kwargs: Any,
-    ) -> Dict[str, List[Sequence[int]] | List[str] | List[List[Dict[str, Any]]]]:
+    ) -> Dict[str, List[list[int]] | List[str] | List[List[Dict[str, Any]]]]:
         pass

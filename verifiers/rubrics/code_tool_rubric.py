@@ -144,7 +144,7 @@ class CodeToolRubric(Rubric):
                 response = str(self.get_last_answer(completion))
                 try:
                     reward = 1.0 if grade(response, ans) else 0.0
-                except:
+                except Exception:
                     reward = 0.0
             else:
                 reward = None

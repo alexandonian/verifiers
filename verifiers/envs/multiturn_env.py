@@ -3,7 +3,7 @@ import time
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
-from typing import Any, Dict, List, Sequence, Tuple, TypedDict
+from typing import Any, Dict, List, TypedDict
 
 from datasets import Dataset
 from pydantic import BaseModel
@@ -121,7 +121,7 @@ class MultiTurnEnv(Environment):
             "spaces_between_special_tokens": False,
             "n": 1,
         }
-        self.sampling_args.update(sampling_args)
+        self.sampling_args |= sampling_args
         self.env_mask = 0 if mask_env_response else 1
         self.max_workers = max_workers
         self.sleep_time = sleep_time
@@ -158,6 +158,13 @@ class MultiTurnEnv(Environment):
         live_indices = [i for i, s in enumerate(states) if not s["completed"]]
         messages_to_step = [states[i]["messages"] for i in live_indices]
 
+        if sampling_params.max_tokens is None:
+            sampling_params.max_tokens = 2048
+
+        assert sampling_params.max_tokens > 0, (
+            "max_tokens must be greater than 0 for sampling parameters."
+        )
+
         if isinstance(llm, VLLMClient):
             llm_responses = llm.chat(
                 messages_to_step,
@@ -167,7 +174,7 @@ class MultiTurnEnv(Environment):
                 top_p=sampling_params.top_p,
                 top_k=sampling_params.top_k,
                 min_p=sampling_params.min_p,
-                max_tokens=sampling_params.max_tokens,  # type: ignore
+                max_tokens=sampling_params.max_tokens,
                 stop=sampling_params.stop,  # type: ignore
                 include_stop_str_in_output=sampling_params.include_stop_str_in_output,
                 skip_special_tokens=sampling_params.skip_special_tokens,
@@ -198,9 +205,9 @@ class MultiTurnEnv(Environment):
 
                 # get token lengths of env response and new completion
                 total_prev_len = len(state["prompt_ids"]) + len(state["completion_ids"])
-                env_response_len = (
-                    len(list(llm_response.prompt_token_ids)) - total_prev_len
-                )
+                num_prev_prompt_ids = len(state["prompt_ids"])
+                num_prompt_tokens = len(list(llm_response.prompt_token_ids))
+                env_response_len = num_prompt_tokens - total_prev_len
                 new_completion_len = len(llm_response.outputs[0].token_ids)
 
                 # update completion masks
@@ -210,9 +217,7 @@ class MultiTurnEnv(Environment):
                 # update completion ids
                 state["completion_ids"] = list(llm_response.prompt_token_ids)
                 state["completion_ids"].extend(list(llm_response.outputs[0].token_ids))
-                state["completion_ids"] = state["completion_ids"][
-                    len(state["prompt_ids"]) :
-                ]
+                state["completion_ids"] = state["completion_ids"][num_prev_prompt_ids:]
 
                 if (
                     state["completion_ids"][-1] != self.new_line_token_id
@@ -224,14 +229,14 @@ class MultiTurnEnv(Environment):
                     state["completion_mask"].append(1)
 
                 if len(state["completion_ids"]) > len(state["completion_mask"]):
-                    state["completion_mask"].extend(
-                        [1]
-                        * (len(state["completion_ids"]) - len(state["completion_mask"]))
-                    )
-                if len(state["completion_mask"]) > len(state["completion_ids"]):  # type: ignore
-                    state["completion_mask"] = state["completion_mask"][
-                        : len(state["completion_ids"])
-                    ]
+                    n = len(state["completion_ids"]) - len(state["completion_mask"])
+                    state["completion_mask"].extend([1] * n)
+
+                if len(state["completion_mask"]) > len(state["completion_ids"]):
+                    n_id = len(state["completion_ids"])
+                    state["completion_mask"] = state["completion_mask"][n_id:]
+
+                assert sampling_params.max_tokens is not None
 
                 if (
                     self.is_completed(state["messages"])
@@ -308,14 +313,14 @@ class MultiTurnEnv(Environment):
         llm: LLM | VLLMClient,
         sampling_params: SamplingParams,
         **kwargs: Any,
-    ) -> Dict[str, List[Sequence[int]] | List[str] | List[List[Dict[str, Any]]]]:
+    ) -> Dict[str, List[list[int]] | List[str] | List[List[Dict[str, Any]]]]:
         custom_sp = sampling_params.clone()
         for k, v in self.sampling_args.items():
             setattr(custom_sp, k, v)
 
         # initialize state variables
         all_completed = False
-        states = [
+        states: list[State] = [
             {
                 "messages": m,
                 "prompt_messages": len(m),
@@ -345,10 +350,10 @@ class MultiTurnEnv(Environment):
         self,
         client: Any,
         model: str,
-        messages: List[Dict[str, str]],
-        sampling_args: Dict[str, Any] = None,
+        messages: list[dict[str, str]],
+        sampling_args: dict[str, Any] | None = None,
         **kwargs: Any,
-    ) -> Tuple[List[Dict[str, str]], bool]:
+    ) -> tuple[list[dict[str, str]], bool]:
         """
         Execute a single step using OpenAI API, including environment response if needed.
 
