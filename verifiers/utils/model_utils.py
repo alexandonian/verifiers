@@ -41,7 +41,11 @@ def if_flash_attn_supported(min_compute_capability: float = 8.0) -> bool:
     return True
 
 
-def get_model(model_name: str, model_kwargs: Union[Dict[str, Any], None] = None) -> Any:
+def get_model(
+    model_name: str,
+    use_liger_kernel: bool = True,
+    model_kwargs: Union[Dict[str, Any], None] = None,
+) -> Any:
     if model_kwargs is None:
         model_kwargs = dict(
             torch_dtype=torch.bfloat16,
@@ -50,13 +54,20 @@ def get_model(model_name: str, model_kwargs: Union[Dict[str, Any], None] = None)
             else "eager",
             use_cache=False,
         )
-    if not is_liger_available():
-        return AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+    if use_liger_kernel and is_liger_available():
+        try:
+            print("Using Liger kernel")
+            from liger_kernel.transformers import AutoLigerKernelForCausalLM  # type: ignore
 
-    print("Using Liger kernel")
-    from liger_kernel.transformers import AutoLigerKernelForCausalLM  # type: ignore
+            return AutoLigerKernelForCausalLM.from_pretrained(
+                model_name, **model_kwargs
+            )
+        except Exception as e:
+            print(f"Failed to load Liger kernel: {e}")
+            print("Falling back to standard model loading")
+            return get_model(model_name, False, model_kwargs)
 
-    return AutoLigerKernelForCausalLM.from_pretrained(model_name, **model_kwargs)
+    return AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
 
 
 def get_tokenizer(model_name: str) -> Any:

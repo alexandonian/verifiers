@@ -19,7 +19,6 @@ dependencies = [
     "duckduckgo-search",
     "trl==0.16.0",
     "liger-kernel",
-    "vllm==0.7.3",
     "brave-search",
     "latex2sympy>=1.0.3",
     "math-verify[antlr4-13-2]>=0.1.0",
@@ -27,6 +26,8 @@ dependencies = [
     "requests>=2.32.3",
     "scipy>=1.15.2",
     "aiopyston>=1.2.1",
+    "transformers>=4.51.0",
+    "vllm>=0.8.5",
 ]
 
 [tool.setuptools]
