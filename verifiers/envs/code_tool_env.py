@@ -6,8 +6,19 @@ from datasets import Dataset
 
 from verifiers import RewardFunc
 from verifiers.envs.multiturn_env import MultiTurnEnv
-from verifiers.parsers import XMLParser
-from verifiers.prompts.system_prompts import DEFAULT_CODE_TOOL_PROMPT_TEMPLATE
+from verifiers.parsers import XMLParser, extract_last_code_block
+from verifiers.prompts.system_prompts import (
+    ANSWER,
+    CODE,
+    CODE_RESULT,
+    DEFAULT_CODE_TOOL_PROMPT_TEMPLATE,
+    END_ANSWER,
+    END_CODE,
+    END_TOOL,
+    THINK,
+    TOOL,
+    TOOL_RESULT,
+)
 from verifiers.rubrics import CodeToolRubric
 from verifiers.tools.python import run_python
 
@@ -110,9 +121,9 @@ class CodeToolEnv(MultiTurnEnv):
         if sampling_args is None:
             sampling_args = {
                 "stop": [
-                    "</tool>\n",
-                    "</answer>\n",
-                    "</code>\n",
+                    f"{END_TOOL}\n",
+                    f"{END_ANSWER}\n",
+                    f"{END_CODE}\n",
                 ],
                 "include_stop_str_in_output": True,
             }
@@ -136,8 +147,8 @@ class CodeToolEnv(MultiTurnEnv):
         self.dataset_name = dataset
         self.max_steps = max_steps
         self.rubric = CodeToolRubric(tools=tools)
-        self.llm_parser = XMLParser(fields=["reasoning", ("code", "tool", "answer")])
-        self.env_parser = XMLParser(fields=["tool_result", "code_result"])
+        self.llm_parser = XMLParser(fields=[THINK, (CODE, TOOL, ANSWER)])
+        self.env_parser = XMLParser(fields=[TOOL_RESULT, CODE_RESULT])
 
     def get_reward_funcs(self, **kwargs: Any) -> List[RewardFunc]:
         return self.rubric.get_reward_funcs()
@@ -170,9 +181,17 @@ class CodeToolEnv(MultiTurnEnv):
 
             parsed = self.llm_parser.parse(messages[-1]["content"])
             # Check if we got a valid answer field (not just None from failed parsing)
-            return hasattr(parsed, "answer") and parsed.answer is not None
+            return hasattr(parsed, ANSWER) and getattr(parsed, ANSWER) is not None
         except Exception:
             return False
+
+    def _parse_code(self, parsed: Any, content: str) -> str:
+        """Extract the code block from the parsed XML."""
+        if hasattr(parsed, CODE) and (getattr(parsed, CODE) is not None):
+            return extract_last_code_block(getattr(parsed, CODE).strip())
+        elif out := extract_last_code_block(content):
+            return out
+        return ""
 
     def call_tool(self, tool_json: str, **kwargs: Any) -> str:
         """Call a tool based on JSON command."""
@@ -222,8 +241,8 @@ class CodeToolEnv(MultiTurnEnv):
         # Check if we got a valid tool field (not just None from failed parsing)
         outputs = []
         try:
-            if hasattr(parsed, "tool") and parsed.tool is not None:
-                tool_result = self.call_tool(parsed.tool)
+            if hasattr(parsed, TOOL) and getattr(parsed, TOOL) is not None:
+                tool_result = self.call_tool(getattr(parsed, TOOL))
                 if len(tool_result.strip()) > 0:
                     tool_result = tool_result.strip()
                 else:
@@ -236,25 +255,24 @@ class CodeToolEnv(MultiTurnEnv):
             outputs.append(f"Error: {str(e)}")
 
         try:
-            if hasattr(parsed, "code") and parsed.code is not None:
-                # code_result = run_secure_execute_in_process(parsed.code.strip())
-                code_result = run_python(parsed.code.strip())
-                code_output = code_result["output"].strip()
-                if len(code_output) == 0:
-                    code_output = "Error: Code execution returned empty output."
+            code_block = self._parse_code(parsed, messages[-1]["content"])
+            code_result = run_python(code_block)
+            code_output = code_result["output"].strip()
+            if len(code_output) == 0:
+                code_output = "Error: Code execution returned empty output."
 
-                outputs.append(
-                    self.env_parser.format(
-                        strict=False,
-                        code_result={
-                            "content": code_output,
-                            "attributes": {
-                                "execution_time": code_result["execution_time"],
-                                "memory_used": code_result["memory_used"],
-                            },
+            outputs.append(
+                self.env_parser.format(
+                    strict=False,
+                    code_result={
+                        "content": code_output,
+                        "attributes": {
+                            "execution_time": code_result["execution_time"],
+                            "memory_used": code_result["memory_used"],
                         },
-                    )
+                    },
                 )
+            )
         except Exception as e:
             print("Error during code execution:", e)
             print(e)
