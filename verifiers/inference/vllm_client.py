@@ -91,13 +91,13 @@ class VLLMClient:
         start_time = time.time()  # Record the start time
 
         while True:
-            try: 
-                response = requests.get(url) # type: ignore
-            except requests.exceptions.RequestException as exc: # type: ignore
+            try:
+                response = requests.get(url)
+            except requests.exceptions.RequestException as exc:
                 # Check if the total timeout duration has passed
                 elapsed_time = time.time() - start_time
                 if elapsed_time >= total_timeout:
-                    raise ConnectionError( # type: ignore
+                    raise ConnectionError(
                         f"The vLLM server can't be reached at {self.host}:{self.server_port} after {total_timeout} "
                         "seconds. Make sure the server is running by running `trl vllm-serve`."
                     ) from exc
@@ -109,6 +109,7 @@ class VLLMClient:
             # Retry logic: wait before trying again
             logger.info(f"Server is not up yet. Retrying in {retry_interval} seconds...")
             time.sleep(retry_interval)
+
 
     def generate(
         self,
